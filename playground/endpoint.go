@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+type Handler func(seq uint16, buf []byte)
+
 type Endpoint struct {
 	mu sync.Mutex
 	wg sync.WaitGroup
@@ -20,10 +22,12 @@ type Endpoint struct {
 	closing uint32
 
 	pool *bytebufferpool.Pool
+
+	handler Handler
 }
 
-func NewEndpoint(conn net.PacketConn) *Endpoint {
-	return &Endpoint{conn: conn, conns: make(map[string]*Conn), pool: new(bytebufferpool.Pool)}
+func NewEndpoint(conn net.PacketConn, handler Handler) *Endpoint {
+	return &Endpoint{conn: conn, conns: make(map[string]*Conn), pool: new(bytebufferpool.Pool), handler: handler}
 }
 
 func (e *Endpoint) getConn(addr net.Addr) *Conn {
@@ -38,7 +42,7 @@ func (e *Endpoint) getConn(addr net.Addr) *Conn {
 			return nil
 		}
 
-		conn = NewConn(e.conn, addr, e.pool)
+		conn = NewConn(e.conn, addr, e.pool, e.handler)
 
 		e.wg.Add(1)
 		go func() {

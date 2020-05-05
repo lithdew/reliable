@@ -18,8 +18,8 @@ func main() {
 	ca := listen("127.0.0.1:44444")
 	cb := listen("127.0.0.1:55555")
 
-	a := NewEndpoint(ca)
-	b := NewEndpoint(cb)
+	a := NewEndpoint(ca, nil)
+	b := NewEndpoint(cb, nil)
 
 	go a.Listen()
 	go b.Listen()

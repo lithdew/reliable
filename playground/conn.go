@@ -24,9 +24,10 @@ type writtenPacket struct {
 }
 
 type Conn struct {
-	conn net.PacketConn
-	addr net.Addr
-	pool Pool
+	conn    net.PacketConn
+	addr    net.Addr
+	pool    Pool
+	handler Handler
 
 	mu sync.Mutex // mutex over everything
 
@@ -47,11 +48,12 @@ type Conn struct {
 	wqe []writtenPacket // write queue entries
 }
 
-func NewConn(conn net.PacketConn, addr net.Addr, pool Pool) *Conn {
+func NewConn(conn net.PacketConn, addr net.Addr, pool Pool, handler Handler) *Conn {
 	c := &Conn{
-		conn: conn,
-		addr: addr,
-		pool: pool,
+		conn:    conn,
+		addr:    addr,
+		pool:    pool,
+		handler: handler,
 
 		die:  false,
 		exit: make(chan struct{}),
@@ -210,6 +212,10 @@ func (c *Conn) Read(buf []byte) error {
 	}
 
 	if !header.acked {
+		if c.handler != nil {
+			c.handler(header.seq, buf)
+		}
+
 		//log.Printf("%s: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits, len(buf))
 	}
 
