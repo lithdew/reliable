@@ -8,7 +8,7 @@
 
 It allows you to bootstrap over a UDP's susceptibility to packet loss, lack of ordering of packets, and granularly introduce packet ordering, peer acknowledgement over the recipient of packets, and more.
 
-The reliability layer is based off of [networkprotocol/reliable.io](https://github.com/networkprotocol/reliable.io), which is described further in detail by Glenn Fiedler's blog post [here](https://gafferongames.com/post/reliable_ordered_messages/).
+The reliability layer is based off of [reliable.io](https://github.com/networkprotocol/reliable.io), which is described further in detail by Glenn Fiedler's blog post [here](https://gafferongames.com/post/reliable_ordered_messages/).
 
 It was chosen for its nice property of having metadata retaining all packets acknowledged by a peer being redundantly distributed across all packets, which significantly reduces chances for packet loss.
 
@@ -37,6 +37,8 @@ On my quest for finding a feasible solution against TCP head-of-line blocking, I
 I felt that they did _just_ a little too much, as all I wanted was a modular reliability layer that I can plug into my existing UDP-based networking protocol.
 
 After all, getting the reliability layer of a protocol right and performant is hard, and honestly something you only want to have to ever worry about once.
+
+As a result, I started crufting up some time to work on creating **reliable**.
 
 ## Features
 
