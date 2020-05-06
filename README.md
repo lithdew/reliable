@@ -109,7 +109,7 @@ In the case you are looking to quickly get a project or demo up and running, use
 
 ## Benchmarks
 
-A benchmark was done using [`cmd/benchmark`](examples/benchmark) from Okayama, Japan to a DigitalOcean 2GB / 60 GB Disk / NYC3 server.
+A benchmark was done using [`cmd/benchmark`](examples/benchmark) from Japan to a DigitalOcean 2GB / 60 GB Disk / NYC3 server.
 
 The benchmark task was to spam 1400 byte packets from Japan to New York. Given a ping latency of roughly 220 milliseconds, the throughput was roughly 1.2 MiB/sec.
 
