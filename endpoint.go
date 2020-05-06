@@ -15,7 +15,7 @@ type Endpoint struct {
 	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
 	readBufferSize  uint16 // read buffer size that must be a divisor of 65536
 
-	updatePeriod time.Duration // how often time-based parts of the protocol get checked
+	updatePeriod time.Duration // how often time-dependant parts of the protocol get checked
 	ackTimeout   time.Duration // how long we wait until unacked packets should be resent
 
 	mu sync.Mutex
