@@ -118,3 +118,55 @@ func TestEndpointHandler(t *testing.T) {
 		require.NoError(t, a.WriteTo(data, b.Addr()))
 	}
 }
+
+func TestEndpointE2E(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	var mu sync.Mutex
+
+	values := make(map[string]struct{})
+
+	actual := uint64(0)
+	expected := uint64(512)
+
+	handler := func(seq uint16, buf []byte) {
+		atomic.AddUint64(&actual, 1)
+
+		//mu.Lock()
+		//_, exists := values[string(buf)]
+		//delete(values, string(buf))
+		//mu.Unlock()
+
+		//require.True(t, exists)
+	}
+
+	ca := newPacketConn(t, "127.0.0.1:0")
+	cb := newPacketConn(t, "127.0.0.1:0")
+
+	a := NewEndpoint(ca, handler)
+	b := NewEndpoint(cb, handler)
+
+	go a.Listen()
+	go b.Listen()
+
+	defer func() {
+		require.NoError(t, a.Close())
+		require.NoError(t, b.Close())
+
+		require.NoError(t, ca.Close())
+		require.NoError(t, cb.Close())
+
+		require.EqualValues(t, expected*2, atomic.LoadUint64(&actual))
+	}()
+
+	for i := uint64(0); i < expected; i++ {
+		data := strconv.AppendUint(nil, i, 10)
+
+		mu.Lock()
+		values[string(data)] = struct{}{}
+		mu.Unlock()
+
+		require.NoError(t, a.WriteTo(data, b.Addr()))
+		require.NoError(t, b.WriteTo(data, a.Addr()))
+	}
+}

@@ -5,7 +5,6 @@ import (
 	"github.com/lithdew/seq"
 	"github.com/valyala/bytebufferpool"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -21,6 +20,11 @@ type writtenPacket struct {
 	buf     Buffer    // pooled contents of this packet
 	acked   bool      // whether or not this packet was acked
 	written time.Time // last time the packet was written
+	resent  byte      // total number of times this packet was resent
+}
+
+func (p writtenPacket) shouldResend(now time.Time) bool {
+	return !p.acked && p.resent < 10 && now.Sub(p.written) >= 100*time.Millisecond
 }
 
 type Conn struct {
@@ -90,7 +94,7 @@ func (c *Conn) Write(buf []byte) error {
 		return err
 	}
 
-	//log.Printf("%s: send    (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), idx, ack, ackBits)
+	//log.Printf"%s: send    (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), idx, ack, ackBits)
 
 	return nil
 }
@@ -161,6 +165,7 @@ func (c *Conn) trackWrite(idx uint16, buf Buffer) {
 	c.wqe[i].buf = buf
 	c.wqe[i].acked = false
 	c.wqe[i].written = time.Now()
+	c.wqe[i].resent = 0
 }
 
 func (c *Conn) clearWrites(start, end uint16) {
@@ -216,7 +221,7 @@ func (c *Conn) Read(buf []byte) error {
 			c.handler(header.seq, buf)
 		}
 
-		//log.Printf("%s: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits, len(buf))
+		//log.Printf"%s: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits, len(buf))
 	}
 
 	return nil
@@ -254,7 +259,7 @@ func (c *Conn) writeAcksIfNecessary() error {
 			return nil
 		}
 
-		//log.Printf("%s: ack     (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits)
+		//log.Printf"%s: ack     (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits)
 
 		if err := c.write(header, nil); err != nil {
 			return fmt.Errorf("failed to write ack packet: %w", err)
@@ -385,11 +390,11 @@ func (c *Conn) Close() {
 	defer c.mu.Unlock()
 
 	if strings.Contains(c.conn.LocalAddr().String(), "44444") { // sending
-		log.Printf("send closed (oldest_sent_ack_idx=%05d) (oldest_unacked_idx=%05d)", c.lui, c.oui)
+		//log.Printf"send closed (oldest_sent_ack_idx=%05d) (oldest_unacked_idx=%05d)", c.lui, c.oui)
 	}
 
 	if strings.Contains(c.conn.LocalAddr().String(), "55555") { // receiving
-		log.Printf("recv closed (oldest_sent_ack_idx=%05d) (oldest_unacked_idx=%05d)", c.lui, c.oui)
+		//log.Printf"recv closed (oldest_sent_ack_idx=%05d) (oldest_unacked_idx=%05d)", c.lui, c.oui)
 	}
 }
 
@@ -414,16 +419,16 @@ func (c *Conn) Run() error {
 }
 
 func (c *Conn) retransmitUnackedPackets() error {
-	now := time.Now()
-
 	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	for idx := uint16(0); idx < uint16(len(c.wq)); idx++ {
 		i := (c.oui + idx) % uint16(len(c.wq))
-		if c.wq[i] != uint32(c.oui+idx) || c.wqe[i].acked || now.Sub(c.wqe[i].written) < 100*time.Millisecond {
+		if c.wq[i] != uint32(c.oui+idx) || !c.wqe[i].shouldResend(time.Now()) {
 			continue
 		}
 
-		//log.Printf("%s: resend  (seq=%d)", c.conn.LocalAddr(), c.oui+idx)
+		//log.Printf"%s: resend  (seq=%d)", c.conn.LocalAddr(), c.oui+idx)
 
 		if err := c.transmit(c.wqe[i].buf.B); err != nil {
 			if isEOF(err) {
@@ -432,9 +437,9 @@ func (c *Conn) retransmitUnackedPackets() error {
 			return fmt.Errorf("failed to retransmit unacked packet: %w", err)
 		}
 
-		c.wqe[i].written = now
+		c.wqe[i].written = time.Now()
+		c.wqe[i].resent++
 	}
-	c.mu.Unlock()
 
 	return nil
 }
@@ -473,7 +478,7 @@ func (c *Conn) retransmitUnackedPackets() error {
 //		return nil
 //	}
 //
-//	log.Printf("%s: overdue (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits)
+//	//log.Printf"%s: overdue (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits)
 //
 //	if err := c.write(header, nil); err != nil {
 //		return fmt.Errorf("failed to write overdue ack packet: %w", err)
