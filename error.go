@@ -3,18 +3,8 @@ package reliable
 import (
 	"errors"
 	"io"
-	"log"
 	"net"
 )
-
-func check(err error) {
-	if err != nil {
-		if isEOF(err) {
-			return
-		}
-		log.Panic(err)
-	}
-}
 
 func isEOF(err error) bool {
 	if errors.Is(err, io.EOF) {
