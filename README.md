@@ -91,9 +91,7 @@ I feel that this approach is best versus the popular alternatives like QUIC or S
 
 ## Usage
 
-In the case you are looking to quickly get a project or demo up and running, it is recommended you use `Endpoint`. 
-
-When plugging **reliable** into your own custom-built UDP networking protocol, consider ditching `Endpoint` completely and directly work with `Conn`. 
+In the case you are looking to quickly get a project or demo up and running, use `Endpoint`. Otherwise, when plugging **reliable** into your own custom-built UDP networking protocol, consider directly working with `Conn`. 
 
 **reliable** uses Go modules. To include it in your project, run the following command:
 
