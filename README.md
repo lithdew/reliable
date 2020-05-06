@@ -21,11 +21,11 @@ With only 9 bytes of packet overhead at most, what **reliable** does for your UD
 
 **reliable** uses the same packet header layout described in [`networkprotocol/reliable.io`](https://github.com/networkprotocol/reliable.io).
 
-All packets start with a single byte (8 bits) representing 8 different flags. Packets are sequential, and are numbered using an unsigned 16-bit integer included in the packet header unless they are marked to be unreliable.
+All packets start with a single byte (8 bits) representing 8 different flags. Packets are sequential, and are numbered using an unsigned 16-bit integer included in the packet header unless the packet is marked to be unreliable.
 
 Packet acknowledgements (ACKs) are redundantly included in every sent packet using a total of 5 bytes: two bytes representing an unsigned 16-bit packet sequence number (ack), and three bytes representing a 32-bit bitfield (ackBits).
 
-The packet header layout, much like [`networkprotocol/reliable.io`](https://github.com/networkprotocol/reliable.io), is delta-encoded and RLE-encoded to reduce the overhead per-packet.
+The packet header layout, much like [`networkprotocol/reliable.io`](https://github.com/networkprotocol/reliable.io), is delta-encoded and RLE-encoded to reduce the size overhead per packet.
 
 ### Packet Acknowledgements
 
@@ -33,7 +33,7 @@ Given a packet we have just received from our peer, for each set bit (i) in the 
 
 In the case of peer A sending packets to B, with B not sending any packets at all to A, B will send an empty packet for every 32 packets received from A so that A will be aware that B has acknowledged its packets.
 
-More explicitly, a counter (lui), is maintained representing the last consecutive packet sequence number that we have received whose acknowledgement we have told to our peer about.
+More explicitly, a counter (lui) is maintained representing the last consecutive packet sequence number that we have received whose acknowledgement we have told to our peer about.
 
 For example, if (lui) is 0, and we have sent acknowledgements for packets whose sequence numbers are 2, 3, 4, and 6, and we have then acknowledged packet sequence number 1, then lui would be 4.
 
@@ -41,7 +41,7 @@ Upon updating (lui), if the next 32 consecutive sequence numbers are sequence nu
 
 ### Packet Buffering
 
-Two fixed-sized sequence buffers are maintained for packets we have sent (wq), and packets we have received (rq). The size fixed for these buffers must be evenly divide into the max value of an unsigned 16-bit integer (65536). The data structure is described in [this blog post by Glenn Fiedler](https://gafferongames.com/post/reliable_ordered_messages/).
+Two fixed-sized sequence buffers are maintained for packets that we have sent (wq), and packets that we have received (rq). The size fixed for these buffers must evenly divide into the max value of an unsigned 16-bit integer (65536). The data structure is described in [this blog post by Glenn Fiedler](https://gafferongames.com/post/reliable_ordered_messages/).
 
 We keep track of a counter (oui), representing the last consecutive sequence number of a packet we have sent that was acknowledged by our peer. For example, if we have sent packets whose sequence numbers are in the range [0, 256], and we have received acknowledgements for packets (0, 1, 2, 3, 4, 8, 9, 10, 11, 12), then (oui) would be 4.
 
@@ -71,7 +71,7 @@ On my quest for finding a feasible solution against TCP head-of-line blocking, I
 8. A small-scale fast transmission protocol: [spance/suft](https://github.com/spance/suft/)
 9. A direct port of QUIC: [lucas-clemente/quic-go](https://github.com/lucas-clemente/quic-go)
 
-Going through all of them, I felt that they just did a little too much for me. For my work and side projects, I have been working heavily on decentralized p2p networking protocols that suffer heavily from operating in high-latency and high packet loss environments.
+Going through all of them, I felt that they did just a little too much for me. For my work and side projects, I have been working heavily on decentralized p2p networking protocols. The nature of these protocols is that they suffer heavily from TCP head-of-line blocking operating in high-latency/high packet loss environments.
 
 In many cases, a lot of the features provided by these libraries were either not needed, or honestly felt like they would best be handled and thought through by the developer using these libraries. For example:
  
@@ -81,14 +81,15 @@ In many cases, a lot of the features provided by these libraries were either not
 
 So, I began working on a modular approach and decided to abstract away the reliability portion of protocols I have built into a separate library.
 
-I feel that this approach is best versus the popular alternatives like QUIC or SCTP that may do just a bit too much for you. After all, getting _just_ the reliability bits of a UDP-based protocol is hard enough. Might as well modularize it into a separate library and get it heavily tested and stabilized, eh?
+I feel that this approach is best versus the popular alternatives like QUIC or SCTP that may, depending on your circumstances, do just a bit too much for you. After all, getting _just_ the reliability bits of a UDP-based protocol correct and well-tested is hard enough.
 
 ## Todo
 
-1. Keep a cache of the string representations of passed-in `net.UDPAddr`.
-2. Reduce locking in as many code hot paths as possible.
-3. Networking statistics (packet loss, RTT, etc.).
-4. More unit tests.
+1. Estimate the round-trip time (RTT) and adjust the system's packet re-transmission delay based off of it.
+2. Keep a cache of the string representations of passed-in `net.UDPAddr`.
+3. Reduce locking in as many code hot paths as possible.
+4. Networking statistics (packet loss, RTT, etc.).
+5. More unit tests.
 
 ## Usage
 
