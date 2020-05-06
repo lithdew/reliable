@@ -85,9 +85,10 @@ I feel that this approach is best versus the popular alternatives like QUIC or S
 
 ## Todo
 
-1. Reduce locking in as many code hot paths as possible.
-2. Networking statistics (packet loss, RTT, etc.).
-3. More unit tests.
+1. Keep a cache of the string representations of passed-in `net.UDPAddr`.
+2. Reduce locking in as many code hot paths as possible.
+3. Networking statistics (packet loss, RTT, etc.).
+4. More unit tests.
 
 ## Usage
 
