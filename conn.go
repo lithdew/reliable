@@ -16,10 +16,12 @@ type Conn struct {
 	updatePeriod time.Duration // how often time-dependant parts of the protocol get checked
 	ackTimeout   time.Duration // how long we wait until unacked packets should be resent
 
-	conn    net.PacketConn
-	addr    net.Addr
-	pool    *Pool
-	handler Handler
+	conn net.PacketConn
+	addr net.Addr
+	pool *Pool
+
+	ph PacketHandler
+	eh ErrorHandler
 
 	mu   sync.Mutex    // mutex over everything
 	die  bool          // is this conn closed?
@@ -238,8 +240,8 @@ func (c *Conn) Read(header PacketHeader, buf []byte) error {
 		return nil
 	}
 
-	if c.handler != nil {
-		c.handler(c.addr, header.Sequence, buf)
+	if c.ph != nil {
+		c.ph(c.addr, header.Sequence, buf)
 	}
 
 	//log.Printf("%s: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", c.conn.LocalAddr(), header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
@@ -416,21 +418,21 @@ func (c *Conn) Close() {
 	//}
 }
 
-func (c *Conn) Run() error {
+func (c *Conn) Run() {
 	ticker := time.NewTicker(c.updatePeriod)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-c.exit:
-			return nil
+			return
 		case <-ticker.C:
-			if err := c.retransmitUnackedPackets(); err != nil {
-				return err
+			if err := c.retransmitUnackedPackets(); err != nil && c.eh != nil {
+				c.eh(c.addr, err)
 			}
 
-			if err := c.writeOverdueAck(); err != nil {
-				return err
+			if err := c.writeOverdueAck(); err != nil && c.eh != nil {
+				c.eh(c.addr, err)
 			}
 		}
 	}

@@ -9,7 +9,8 @@ import (
 	"time"
 )
 
-type Handler func(addr net.Addr, seq uint16, buf []byte)
+type PacketHandler func(addr net.Addr, seq uint16, buf []byte)
+type ErrorHandler func(addr net.Addr, err error)
 
 type Endpoint struct {
 	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
@@ -21,9 +22,12 @@ type Endpoint struct {
 	mu sync.Mutex
 	wg sync.WaitGroup
 
-	pool    *Pool
-	handler Handler
+	pool *Pool
 
+	ph PacketHandler
+	eh ErrorHandler
+
+	addr  net.Addr
 	conn  net.PacketConn
 	conns map[string]*Conn
 
@@ -31,7 +35,7 @@ type Endpoint struct {
 }
 
 func NewEndpoint(conn net.PacketConn, opts ...EndpointOption) *Endpoint {
-	e := &Endpoint{conn: conn, conns: make(map[string]*Conn)}
+	e := &Endpoint{conn: conn, addr: conn.LocalAddr(), conns: make(map[string]*Conn)}
 
 	for _, opt := range opts {
 		opt.applyEndpoint(e)
@@ -80,13 +84,14 @@ func (e *Endpoint) getConn(addr net.Addr) *Conn {
 			WithUpdatePeriod(e.updatePeriod),
 			WithACKTimeout(e.ackTimeout),
 			WithBufferPool(e.pool),
-			WithHandler(e.handler),
+			WithPacketHandler(e.ph),
+			WithErrorHandler(e.eh),
 		)
 
 		e.wg.Add(1)
 		go func() {
 			defer e.wg.Done()
-			check(conn.Run())
+			conn.Run()
 		}()
 
 		e.conns[id] = conn
@@ -121,7 +126,7 @@ func (e *Endpoint) clearConns() {
 }
 
 func (e *Endpoint) Addr() net.Addr {
-	return e.conn.LocalAddr()
+	return e.addr
 }
 
 func (e *Endpoint) WriteReliablePacket(buf []byte, addr net.Addr) error {

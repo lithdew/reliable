@@ -49,7 +49,7 @@ func main() {
 		atomic.AddUint64(&counter, 1)
 	}
 
-	endpoint := reliable.NewEndpoint(conn, reliable.WithHandler(handler))
+	endpoint := reliable.NewEndpoint(conn, reliable.WithPacketHandler(handler))
 	go endpoint.Listen()
 
 	defer func() {

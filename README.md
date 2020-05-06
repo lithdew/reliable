@@ -104,8 +104,9 @@ In the case you are looking to quickly get a project or demo up and running, use
 1. The read buffer size may be configured using `WithReadBufferSize`. The default read buffer size is 256.
 2. The write buffer size may be configured using `WithWriteBufferSize`. The default write buffer size is 256.
 3. The minimum period of time that once elapsed, requires the transmission of an ACK may be configured using `WithACKTimeout`. The default ACK timeout is 100 milliseconds.
-4. A handler which is to be called back when a packet is received may be configured using `WithHandler`. By default, a nil handler is provided which ignores all incoming packets.
-5. A byte buffer pool may be passed in using `WithBufferPool`. By default, a new byte buffer pool is instantiated.
+4. A packet handler which is to be called back when a packet is received may be configured using `WithPacketHandler`. By default, a nil handler is provided which ignores all incoming packets.
+5. An error handler which is called when errors occur on a connection that may be configured using `WithErrorHandler` By default, a nil handler is provided which ignores all errors.
+6. A byte buffer pool may be passed in using `WithBufferPool`. By default, a new byte buffer pool is instantiated.
 
 ## Benchmarks
 
@@ -161,7 +162,7 @@ import (
 )
 
 var (
-	PacketData = bytes.Repeat([]byte("a"), 1400)
+	PacketData = bytes.Repeat([]byte("x"), 1400)
 	NumPackets = uint64(0)
 )
 
@@ -194,8 +195,8 @@ func main() {
 	ca := listen("127.0.0.1:44444")
 	cb := listen("127.0.0.1:55555")
 
-	a := reliable.NewEndpoint(ca, reliable.WithHandler(handler))
-	b := reliable.NewEndpoint(cb, reliable.WithHandler(handler))
+	a := reliable.NewEndpoint(ca, reliable.WithPacketHandler(handler))
+	b := reliable.NewEndpoint(cb, reliable.WithPacketHandler(handler))
 
 	defer func() {
 		check(ca.SetDeadline(time.Now().Add(1 * time.Millisecond)))

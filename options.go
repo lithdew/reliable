@@ -54,12 +54,19 @@ func WithReadBufferSize(readBufferSize uint16) Option {
 	return withReadBufferSize{readBufferSize: readBufferSize}
 }
 
-type withHandler struct{ handler Handler }
+type withPacketHandler struct{ ph PacketHandler }
 
-func (o withHandler) applyConn(c *Conn)         { c.handler = o.handler }
-func (o withHandler) applyEndpoint(e *Endpoint) { e.handler = o.handler }
+func (o withPacketHandler) applyConn(c *Conn)         { c.ph = o.ph }
+func (o withPacketHandler) applyEndpoint(e *Endpoint) { e.ph = o.ph }
 
-func WithHandler(handler Handler) Option { return withHandler{handler: handler} }
+func WithPacketHandler(ph PacketHandler) Option { return withPacketHandler{ph: ph} }
+
+type withErrorHandler struct{ eh ErrorHandler }
+
+func (o withErrorHandler) applyConn(c *Conn)         { c.eh = o.eh }
+func (o withErrorHandler) applyEndpoint(e *Endpoint) { e.eh = o.eh }
+
+func WithErrorHandler(eh ErrorHandler) Option { return withErrorHandler{eh: eh} }
 
 type withUpdatePeriod struct{ updatePeriod time.Duration }
 

@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	PacketData = bytes.Repeat([]byte("a"), 1400)
+	PacketData = bytes.Repeat([]byte("x"), 1400)
 	NumPackets = uint64(0)
 )
 
@@ -49,8 +49,8 @@ func main() {
 	ca := listen("127.0.0.1:44444")
 	cb := listen("127.0.0.1:55555")
 
-	a := reliable.NewEndpoint(ca, reliable.WithHandler(handler))
-	b := reliable.NewEndpoint(cb, reliable.WithHandler(handler))
+	a := reliable.NewEndpoint(ca, reliable.WithPacketHandler(handler))
+	b := reliable.NewEndpoint(cb, reliable.WithPacketHandler(handler))
 
 	defer func() {
 		check(ca.SetDeadline(time.Now().Add(1 * time.Millisecond)))

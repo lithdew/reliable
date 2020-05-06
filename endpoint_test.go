@@ -109,8 +109,8 @@ func TestEndpointWriteReliablePacket(t *testing.T) {
 	ca := newPacketConn(t, "127.0.0.1:0")
 	cb := newPacketConn(t, "127.0.0.1:0")
 
-	a := NewEndpoint(ca, WithHandler(handler))
-	b := NewEndpoint(cb, WithHandler(handler))
+	a := NewEndpoint(ca, WithPacketHandler(handler))
+	b := NewEndpoint(cb, WithPacketHandler(handler))
 
 	go a.Listen()
 	go b.Listen()
@@ -152,8 +152,8 @@ func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
 	ca := newPacketConn(t, "127.0.0.1:0")
 	cb := newPacketConn(t, "127.0.0.1:0")
 
-	a := NewEndpoint(ca, WithHandler(handler))
-	b := NewEndpoint(cb, WithHandler(handler))
+	a := NewEndpoint(ca, WithPacketHandler(handler))
+	b := NewEndpoint(cb, WithPacketHandler(handler))
 
 	go a.Listen()
 	go b.Listen()
