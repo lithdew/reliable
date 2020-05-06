@@ -103,7 +103,7 @@ $ go get github.com/lithdew/reliable
 
 A benchmark was done using [`cmd/benchmark`](examples/benchmark) from Okayama, Japan to a DigitalOcean 2GB / 60 GB Disk / NYC3 server.
 
-Given a ping latency of roughly 220 milliseconds, the throughput was roughly 1.2 MiB/sec. The benchmark was to spam 1400 byte packets from Japan to New York.
+The benchmark task was to spam 1400 byte packets from Japan to New York. Given a ping latency of roughly 220 milliseconds, the throughput was roughly 1.2 MiB/sec.
 
 Unit test benchmarks have also been performed, as shown below.
 
