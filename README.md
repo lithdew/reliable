@@ -101,14 +101,22 @@ $ go get github.com/lithdew/reliable
 
 ## Benchmarks
 
+A benchmark was done using [`cmd/benchmark`](examples/benchmark) from Japan to a DigitalOcean 2GB / 60 GB Disk / NYC3 server. Given a ping latency of roughly 220 milliseconds, the throughput was roughly 1.2 MiB/sec. The benchmark was to spam 1400 byte packets from Japan to New York.
+
+Unit test benchmarks have also been performed, as shown below.
+
 ```
+$ cat /proc/cpuinfo | grep 'model name' | uniq
+model name : Intel(R) Core(TM) i7-7700HQ CPU @ 2.80GHz
+
 $ go test -bench=. -benchtime=10s
 goos: linux
 goarch: amd64
 pkg: github.com/lithdew/reliable
-BenchmarkEndpointWriteReliablePacket-8           1361272              7787 ns/op             184 B/op          9 allocs/op
-BenchmarkMarshalPacketHeader-8                  714252915               15.9 ns/op             0 B/op          0 allocs/op
-BenchmarkUnmarshalPacketHeader-8                826948872               16.2 ns/op             0 B/op          0 allocs/op
+BenchmarkEndpointWriteReliablePacket-8           2053717              5941 ns/op             183 B/op          9 allocs/op
+BenchmarkEndpointWriteUnreliablePacket-8         2472392              4866 ns/op             176 B/op          8 allocs/op
+BenchmarkMarshalPacketHeader-8                  749060137               15.7 ns/op             0 B/op          0 allocs/op
+BenchmarkUnmarshalPacketHeader-8                835547473               14.6 ns/op             0 B/op          0 allocs/op
 ```
 
 ## Example
@@ -180,6 +188,9 @@ func main() {
 	b := reliable.NewEndpoint(cb, reliable.WithHandler(handler))
 
 	defer func() {
+		check(ca.SetDeadline(time.Now().Add(1 * time.Millisecond)))
+		check(cb.SetDeadline(time.Now().Add(1 * time.Millisecond)))
+
 		close(exit)
 
 		check(a.Close())

@@ -6,7 +6,6 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 type Handler func(addr net.Addr, seq uint16, buf []byte)
@@ -142,11 +141,6 @@ func (e *Endpoint) Listen() {
 
 	buf := make([]byte, math.MaxUint16+1)
 	for {
-		err = e.conn.SetDeadline(time.Now().Add(1 * time.Second))
-		if err != nil {
-			break
-		}
-
 		n, addr, err = e.conn.ReadFrom(buf)
 		if err != nil {
 			break

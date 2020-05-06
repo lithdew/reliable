@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func newPacketConn(t testing.TB, addr string) net.PacketConn {
@@ -29,6 +30,9 @@ func BenchmarkEndpointWriteReliablePacket(b *testing.B) {
 	go eb.Listen()
 
 	defer func() {
+		require.NoError(b, ca.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(b, cb.SetDeadline(time.Now().Add(1*time.Millisecond)))
+
 		require.NoError(b, ea.Close())
 		require.NoError(b, eb.Close())
 
@@ -43,6 +47,39 @@ func BenchmarkEndpointWriteReliablePacket(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		if err := ea.WriteReliablePacket(data, eb.Addr()); err != nil && !isEOF(err) {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEndpointWriteUnreliablePacket(b *testing.B) {
+	ca := newPacketConn(b, "127.0.0.1:0")
+	cb := newPacketConn(b, "127.0.0.1:0")
+
+	ea := NewEndpoint(ca)
+	eb := NewEndpoint(cb)
+
+	go ea.Listen()
+	go eb.Listen()
+
+	defer func() {
+		require.NoError(b, ca.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(b, cb.SetDeadline(time.Now().Add(1*time.Millisecond)))
+
+		require.NoError(b, ea.Close())
+		require.NoError(b, eb.Close())
+
+		require.NoError(b, ca.Close())
+		require.NoError(b, cb.Close())
+	}()
+
+	data := bytes.Repeat([]byte("x"), 1400)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		if err := ea.WriteUnreliablePacket(data, eb.Addr()); err != nil && !isEOF(err) {
 			b.Fatal(err)
 		}
 	}
@@ -79,6 +116,9 @@ func TestEndpointWriteReliablePacket(t *testing.T) {
 	go b.Listen()
 
 	defer func() {
+		require.NoError(t, ca.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(t, cb.SetDeadline(time.Now().Add(1*time.Millisecond)))
+
 		require.NoError(t, a.Close())
 		require.NoError(t, b.Close())
 
@@ -119,6 +159,9 @@ func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
 	go b.Listen()
 
 	defer func() {
+		require.NoError(t, ca.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(t, cb.SetDeadline(time.Now().Add(1*time.Millisecond)))
+
 		require.NoError(t, a.Close())
 		require.NoError(t, b.Close())
 

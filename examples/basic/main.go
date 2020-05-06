@@ -53,6 +53,9 @@ func main() {
 	b := reliable.NewEndpoint(cb, reliable.WithHandler(handler))
 
 	defer func() {
+		check(ca.SetDeadline(time.Now().Add(1 * time.Millisecond)))
+		check(cb.SetDeadline(time.Now().Add(1 * time.Millisecond)))
+
 		close(exit)
 
 		check(a.Close())
