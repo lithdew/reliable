@@ -21,7 +21,7 @@ With only 9 bytes of packet overhead at most, what **reliable** does for your UD
 
 **reliable** uses the same packet header layout described in [`networkprotocol/reliable.io`](https://github.com/networkprotocol/reliable.io).
 
-All packets start with a single byte (8 bits) representing 8 different flags. Packets are sequential and are numbered using an unsigned 16-bit integer included in the packet header.
+All packets start with a single byte (8 bits) representing 8 different flags. Packets are sequential, unless marked to be an unordered packet not to be acknowledged by **reliable**, and are numbered using an unsigned 16-bit integer included in the packet header.
 
 Packet acknowledgements (ACKs) are redundantly included in every sent packet using a total of 5 bytes: two bytes representing an unsigned 16-bit packet sequence number (ack), and three bytes representing a 32-bit bitfield (ackBits).
 
