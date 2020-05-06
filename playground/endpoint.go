@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/valyala/bytebufferpool"
 	"io"
 	"math"
 	"net"
@@ -21,13 +20,13 @@ type Endpoint struct {
 
 	closing uint32
 
-	pool *bytebufferpool.Pool
+	pool *Pool
 
 	handler Handler
 }
 
 func NewEndpoint(conn net.PacketConn, handler Handler) *Endpoint {
-	return &Endpoint{conn: conn, conns: make(map[string]*Conn), pool: new(bytebufferpool.Pool), handler: handler}
+	return &Endpoint{conn: conn, conns: make(map[string]*Conn), pool: new(Pool), handler: handler}
 }
 
 func (e *Endpoint) getConn(addr net.Addr) *Conn {

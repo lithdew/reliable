@@ -12,12 +12,12 @@ import (
 )
 
 type (
-	Buffer = *bytebufferpool.ByteBuffer
-	Pool   = *bytebufferpool.Pool
+	Buffer = bytebufferpool.ByteBuffer
+	Pool   = bytebufferpool.Pool
 )
 
 type writtenPacket struct {
-	buf     Buffer    // pooled contents of this packet
+	buf     *Buffer   // pooled contents of this packet
 	acked   bool      // whether or not this packet was acked
 	written time.Time // last time the packet was written
 	resent  byte      // total number of times this packet was resent
@@ -30,7 +30,7 @@ func (p writtenPacket) shouldResend(now time.Time) bool {
 type Conn struct {
 	conn    net.PacketConn
 	addr    net.Addr
-	pool    Pool
+	pool    *Pool
 	handler Handler
 
 	mu sync.Mutex // mutex over everything
@@ -52,7 +52,7 @@ type Conn struct {
 	wqe []writtenPacket // write queue entries
 }
 
-func NewConn(conn net.PacketConn, addr net.Addr, pool Pool, handler Handler) *Conn {
+func NewConn(conn net.PacketConn, addr net.Addr, pool *Pool, handler Handler) *Conn {
 	c := &Conn{
 		conn:    conn,
 		addr:    addr,
@@ -139,7 +139,9 @@ func (c *Conn) write(header PacketHeader, buf []byte) error {
 	b.B = header.AppendTo(b.B)
 	b.B = append(b.B, buf...)
 
-	c.trackWrite(header.seq, b)
+	if !header.unordered {
+		c.trackWrite(header.seq, b)
+	}
 
 	if err := c.transmit(b.B); err != nil && !isEOF(err) {
 		return fmt.Errorf("failed to transmit packet: %w", err)
@@ -148,7 +150,7 @@ func (c *Conn) write(header PacketHeader, buf []byte) error {
 	return nil
 }
 
-func (c *Conn) trackWrite(idx uint16, buf Buffer) {
+func (c *Conn) trackWrite(idx uint16, buf *Buffer) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -206,7 +208,7 @@ func (c *Conn) Read(buf []byte) error {
 
 	c.readAckBits(header.ack, header.ackBits)
 
-	if !c.trackRead(header.seq) {
+	if !header.unordered && !c.trackRead(header.seq) {
 		return nil
 	}
 
@@ -216,13 +218,15 @@ func (c *Conn) Read(buf []byte) error {
 		return fmt.Errorf("failed to write acks when necessary: %w", err)
 	}
 
-	if !header.acked {
-		if c.handler != nil {
-			c.handler(header.seq, buf)
-		}
-
-		//log.Printf"%s: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits, len(buf))
+	if header.acked {
+		return nil
 	}
+
+	if c.handler != nil {
+		c.handler(header.seq, buf)
+	}
+
+	//log.Printf"%s: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d)", c.conn.LocalAddr(), header.seq, header.ack, header.ackBits, len(buf))
 
 	return nil
 }
