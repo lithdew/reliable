@@ -99,7 +99,11 @@ func main() {
 				numPackets := atomic.SwapUint64(&NumPackets, 0)
 				numBytes := float64(numPackets) * 1400.0 / 1024.0 / 1024.0
 
-				log.Printf("Sent %d packet(s) comprised of %.2f MiB worth of data.", numPackets, numBytes)
+				log.Printf(
+					"Sent %d packet(s) comprised of %.2f MiB worth of data.",
+					numPackets,
+					numBytes,
+				)
 			}
 		}
 	}()
