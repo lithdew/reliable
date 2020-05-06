@@ -42,14 +42,6 @@ func NewEndpoint(conn net.PacketConn, opts ...EndpointOption) *Endpoint {
 		e.readBufferSize = DefaultReadBufferSize
 	}
 
-	if 65536%uint32(e.writeBufferSize) != 0 {
-		panic("endpoint: write buffer size must be smaller than 65536 and a power of two")
-	}
-
-	if 65536%uint32(e.readBufferSize) != 0 {
-		panic("endpoint: read buffer size must be smaller than 65536 and a power of two")
-	}
-
 	if e.pool == nil {
 		e.pool = new(Pool)
 	}

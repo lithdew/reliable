@@ -14,7 +14,7 @@ func TestEncodeDecodePacketHeader(t *testing.T) {
 	defer bytebufferpool.Put(buf)
 
 	f := func(seq, ack uint16, ackBits uint32) bool {
-		header := PacketHeader{seq: seq, ack: ack, ackBits: ackBits}
+		header := PacketHeader{Sequence: seq, ACK: ack, ACKBits: ackBits}
 		recovered, leftover, err := UnmarshalPacketHeader(header.AppendTo(buf.B[:0]))
 		return assert.NoError(t, err) && assert.Len(t, leftover, 0) && assert.EqualValues(t, header, recovered)
 	}
@@ -23,7 +23,7 @@ func TestEncodeDecodePacketHeader(t *testing.T) {
 }
 
 func BenchmarkMarshalPacketHeader(b *testing.B) {
-	header := PacketHeader{seq: math.MaxUint16, ack: math.MaxUint16, ackBits: math.MaxUint32}
+	header := PacketHeader{Sequence: math.MaxUint16, ACK: math.MaxUint16, ACKBits: math.MaxUint32}
 
 	buf := bytebufferpool.Get()
 	defer bytebufferpool.Put(buf)
@@ -37,7 +37,7 @@ func BenchmarkMarshalPacketHeader(b *testing.B) {
 }
 
 func BenchmarkUnmarshalPacketHeader(b *testing.B) {
-	header := PacketHeader{seq: math.MaxUint16, ack: math.MaxUint16, ackBits: math.MaxUint32}
+	header := PacketHeader{Sequence: math.MaxUint16, ACK: math.MaxUint16, ACKBits: math.MaxUint32}
 
 	buf := bytebufferpool.Get()
 	defer bytebufferpool.Put(buf)
@@ -61,7 +61,7 @@ func BenchmarkUnmarshalPacketHeader(b *testing.B) {
 		if leftover := len(leftover); leftover != 0 {
 			b.Fatalf("got %d byte(s) leftover", leftover)
 		}
-		if recovered.seq != header.seq || recovered.ack != header.ack || recovered.ackBits != header.ackBits {
+		if recovered.Sequence != header.Sequence || recovered.ACK != header.ACK || recovered.ACKBits != header.ACKBits {
 			b.Fatalf("got %#v, expected %#v", recovered, header)
 		}
 	}

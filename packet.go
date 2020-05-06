@@ -40,7 +40,7 @@ const (
 	FlagC
 	FlagD
 	FlagACKEncoded
-	FlagACK
+	FlagEmpty
 	FlagUnordered
 )
 
@@ -57,37 +57,37 @@ func (p PacketHeaderFlag) AppendTo(dst []byte) []byte {
 }
 
 type PacketHeader struct {
-	seq       uint16
-	ack       uint16
-	ackBits   uint32
-	unordered bool
-	acked     bool
+	Sequence  uint16
+	ACK       uint16
+	ACKBits   uint32
+	Unordered bool
+	Empty     bool
 }
 
 func (p PacketHeader) AppendTo(dst []byte) []byte {
 	// Mark a flag byte to RLE-encode the ACK bitset.
 
 	flag := PacketHeaderFlag(0)
-	if p.ackBits&0x000000FF != 0x000000FF {
+	if p.ACKBits&0x000000FF != 0x000000FF {
 		flag = flag.Toggle(FlagA)
 	}
-	if p.ackBits&0x0000FF00 != 0x0000FF00 {
+	if p.ACKBits&0x0000FF00 != 0x0000FF00 {
 		flag = flag.Toggle(FlagB)
 	}
-	if p.ackBits&0x00FF0000 != 0x00FF0000 {
+	if p.ACKBits&0x00FF0000 != 0x00FF0000 {
 		flag = flag.Toggle(FlagC)
 	}
-	if p.ackBits&0xFF000000 != 0xFF000000 {
+	if p.ACKBits&0xFF000000 != 0xFF000000 {
 		flag = flag.Toggle(FlagD)
 	}
-	if p.acked {
-		flag = flag.Toggle(FlagACK)
+	if p.Empty {
+		flag = flag.Toggle(FlagEmpty)
 	}
-	if p.unordered {
+	if p.Unordered {
 		flag = flag.Toggle(FlagUnordered)
 	}
 
-	diff := int(p.seq) - int(p.ack)
+	diff := int(p.Sequence) - int(p.ACK)
 	if diff < 0 {
 		diff += 65536
 	}
@@ -102,31 +102,31 @@ func (p PacketHeader) AppendTo(dst []byte) []byte {
 
 	dst = flag.AppendTo(dst)
 
-	if p.unordered {
-		dst = bytesutil.AppendUint16BE(dst, p.ack)
+	if p.Unordered {
+		dst = bytesutil.AppendUint16BE(dst, p.ACK)
 	} else {
-		dst = bytesutil.AppendUint16BE(dst, p.seq)
+		dst = bytesutil.AppendUint16BE(dst, p.Sequence)
 
 		if diff <= 255 {
 			dst = append(dst, uint8(diff))
 		} else {
-			dst = bytesutil.AppendUint16BE(dst, p.ack)
+			dst = bytesutil.AppendUint16BE(dst, p.ACK)
 		}
 	}
 
 	// Marshal ACK bitset.
 
-	if p.ackBits&0x000000FF != 0x000000FF {
-		dst = append(dst, uint8(p.ackBits&0x000000FF))
+	if p.ACKBits&0x000000FF != 0x000000FF {
+		dst = append(dst, uint8(p.ACKBits&0x000000FF))
 	}
-	if p.ackBits&0x0000FF00 != 0x0000FF00 {
-		dst = append(dst, uint8((p.ackBits&0x0000FF00)>>8))
+	if p.ACKBits&0x0000FF00 != 0x0000FF00 {
+		dst = append(dst, uint8((p.ACKBits&0x0000FF00)>>8))
 	}
-	if p.ackBits&0x00FF0000 != 0x00FF0000 {
-		dst = append(dst, uint8((p.ackBits&0x00FF0000)>>16))
+	if p.ACKBits&0x00FF0000 != 0x00FF0000 {
+		dst = append(dst, uint8((p.ACKBits&0x00FF0000)>>16))
 	}
-	if p.ackBits&0xFF000000 != 0xFF000000 {
-		dst = append(dst, uint8((p.ackBits&0xFF000000)>>24))
+	if p.ACKBits&0xFF000000 != 0xFF000000 {
+		dst = append(dst, uint8((p.ACKBits&0xFF000000)>>24))
 	}
 
 	return dst
@@ -147,16 +147,16 @@ func UnmarshalPacketHeader(buf []byte) (header PacketHeader, leftover []byte, er
 		return header, buf, io.ErrUnexpectedEOF
 	}
 
-	header.acked = flag.Toggled(FlagACK)
-	header.unordered = flag.Toggled(FlagUnordered)
+	header.Empty = flag.Toggled(FlagEmpty)
+	header.Unordered = flag.Toggled(FlagUnordered)
 
-	if header.unordered {
+	if header.Unordered {
 		if len(buf) < 2 {
 			return header, buf, io.ErrUnexpectedEOF
 		}
-		header.ack, buf = bytesutil.Uint16BE(buf[:2]), buf[2:]
+		header.ACK, buf = bytesutil.Uint16BE(buf[:2]), buf[2:]
 	} else {
-		header.seq, buf = bytesutil.Uint16BE(buf[:2]), buf[2:]
+		header.Sequence, buf = bytesutil.Uint16BE(buf[:2]), buf[2:]
 
 		// Read and decode the latest ACK'ed sequence number (either 1 or 2 bytes) using the RLE flag marker.
 
@@ -164,12 +164,12 @@ func UnmarshalPacketHeader(buf []byte) (header PacketHeader, leftover []byte, er
 			if len(buf) < 1 {
 				return header, buf, io.ErrUnexpectedEOF
 			}
-			header.ack, buf = header.seq-uint16(buf[0]), buf[1:]
+			header.ACK, buf = header.Sequence-uint16(buf[0]), buf[1:]
 		} else {
 			if len(buf) < 2 {
 				return header, buf, io.ErrUnexpectedEOF
 			}
-			header.ack, buf = bytesutil.Uint16BE(buf[:2]), buf[2:]
+			header.ACK, buf = bytesutil.Uint16BE(buf[:2]), buf[2:]
 		}
 	}
 
@@ -179,29 +179,29 @@ func UnmarshalPacketHeader(buf []byte) (header PacketHeader, leftover []byte, er
 
 	// Read and decode ACK bitset using the RLE flag marker.
 
-	header.ackBits = 0xFFFFFFFF
+	header.ACKBits = 0xFFFFFFFF
 
 	if flag.Toggled(FlagA) {
-		header.ackBits &= 0xFFFFFF00
-		header.ackBits |= uint32(buf[0])
+		header.ACKBits &= 0xFFFFFF00
+		header.ACKBits |= uint32(buf[0])
 		buf = buf[1:]
 	}
 
 	if flag.Toggled(FlagB) {
-		header.ackBits &= 0xFFFF00FF
-		header.ackBits |= uint32(buf[0]) << 8
+		header.ACKBits &= 0xFFFF00FF
+		header.ACKBits |= uint32(buf[0]) << 8
 		buf = buf[1:]
 	}
 
 	if flag.Toggled(FlagC) {
-		header.ackBits &= 0xFF00FFFF
-		header.ackBits |= uint32(buf[0]) << 16
+		header.ACKBits &= 0xFF00FFFF
+		header.ACKBits |= uint32(buf[0]) << 16
 		buf = buf[1:]
 	}
 
 	if flag.Toggled(FlagD) {
-		header.ackBits &= 0x00FFFFFF
-		header.ackBits |= uint32(buf[0]) << 24
+		header.ACKBits &= 0x00FFFFFF
+		header.ACKBits |= uint32(buf[0]) << 24
 		buf = buf[1:]
 	}
 

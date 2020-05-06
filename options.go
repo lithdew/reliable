@@ -26,6 +26,9 @@ func (o withWriteBufferSize) applyConn(c *Conn)         { c.writeBufferSize = o.
 func (o withWriteBufferSize) applyEndpoint(e *Endpoint) { e.writeBufferSize = o.writeBufferSize }
 
 func WithWriteBufferSize(writeBufferSize uint16) Option {
+	if 65536%uint32(writeBufferSize) != 0 {
+		panic("write buffer size must be smaller than 65536 and a power of two")
+	}
 	return withWriteBufferSize{writeBufferSize: writeBufferSize}
 }
 
@@ -35,6 +38,9 @@ func (o withReadBufferSize) applyConn(c *Conn)         { c.readBufferSize = o.re
 func (o withReadBufferSize) applyEndpoint(e *Endpoint) { e.readBufferSize = o.readBufferSize }
 
 func WithReadBufferSize(readBufferSize uint16) Option {
+	if 65536%uint32(readBufferSize) != 0 {
+		panic("read buffer size must be smaller than 65536 and a power of two")
+	}
 	return withReadBufferSize{readBufferSize: readBufferSize}
 }
 
