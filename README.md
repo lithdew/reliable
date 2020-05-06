@@ -27,7 +27,7 @@ Packet acknowledgements (ACKs) are redundantly included in every sent packet usi
 
 The packet header layout, much like [`networkprotocol/reliable.io`](https://github.com/networkprotocol/reliable.io), is delta-encoded and RLE-encoded to reduce the size overhead per packet.
 
-### Packet Acknowledgements
+### Packet ACKs
 
 Given a packet we have just received from our peer, for each set bit (i) in the bitfield (ackBits), we mark a packet we have sent to be acknowledged if its sequence number is (ack - i).
 
