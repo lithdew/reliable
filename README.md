@@ -47,7 +47,7 @@ We keep track of a counter (oui), representing the last consecutive sequence num
 
 Let cap(q) be the fixed size or capacity of sequence buffer q.
 
-While sending packets, we intermittently stop and buffer the sending of packets if we believe sending more packets would overflow the read buffer of our recipient. More explicitly, if the next packet we sent is assigned a packet number greater than (oui + cap(rq)), we stop all sends until oui has incremented through the recipient of a packet from our peer.
+While sending packets, we intermittently stop and buffer the sending of packets if we believe sending more packets would overflow the read buffer of our recipient. More explicitly, if the next packet we sent is assigned a packet number greater than (oui + cap(rq)), we stop all sends until (oui) has incremented through the recipient of a packet from our peer.
 
 ### Retransmitting Lost Packets
 
@@ -91,13 +91,21 @@ I feel that this approach is best versus the popular alternatives like QUIC or S
 
 ## Usage
 
-In the case you are looking to quickly get a project or demo up and running, use `Endpoint`. Should you require more flexibility, consider directly working with `Conn`. 
-
 **reliable** uses Go modules. To include it in your project, run the following command:
 
 ```
 $ go get github.com/lithdew/reliable
 ```
+
+In the case you are looking to quickly get a project or demo up and running, use `Endpoint`. Should you require more flexibility, consider directly working with `Conn`. 
+
+## Options
+
+1. The read buffer size may be configured using `WithReadBufferSize`. The default read buffer size is 256.
+2. The write buffer size may be configured using `WithWriteBufferSize`. The default write buffer size is 256.
+3. The minimum period of time that once elapsed, requires the transmission of an ACK may be configured using `WithACKTimeout`. The default ACK timeout is 100 milliseconds.
+4. A handler which is to be called back when a packet is received may be configured using `WithHandler`. By default, a nil handler is provided which ignores all incoming packets.
+5. A byte buffer pool may be passed in using `WithBufferPool`. By default, a new byte buffer pool is instantiated.
 
 ## Benchmarks
 

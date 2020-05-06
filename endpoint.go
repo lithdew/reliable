@@ -6,13 +6,17 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Handler func(addr net.Addr, seq uint16, buf []byte)
 
 type Endpoint struct {
-	writeBufferSize uint16
-	readBufferSize  uint16
+	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
+	readBufferSize  uint16 // read buffer size that must be a divisor of 65536
+
+	updatePeriod time.Duration // how often time-based parts of the protocol get checked
+	ackTimeout   time.Duration // how long we wait until unacked packets should be resent
 
 	mu sync.Mutex
 	wg sync.WaitGroup
@@ -41,6 +45,14 @@ func NewEndpoint(conn net.PacketConn, opts ...EndpointOption) *Endpoint {
 		e.readBufferSize = DefaultReadBufferSize
 	}
 
+	if e.ackTimeout == 0 {
+		e.ackTimeout = DefaultACKTimeout
+	}
+
+	if e.updatePeriod == 0 {
+		e.updatePeriod = DefaultUpdatePeriod
+	}
+
 	if e.pool == nil {
 		e.pool = new(Pool)
 	}
@@ -65,6 +77,8 @@ func (e *Endpoint) getConn(addr net.Addr) *Conn {
 			addr,
 			WithWriteBufferSize(e.writeBufferSize),
 			WithReadBufferSize(e.readBufferSize),
+			WithUpdatePeriod(e.updatePeriod),
+			WithACKTimeout(e.ackTimeout),
 			WithBufferPool(e.pool),
 			WithHandler(e.handler),
 		)

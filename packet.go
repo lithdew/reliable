@@ -8,12 +8,7 @@ import (
 	"time"
 )
 
-const (
-	AckBitsetSize = 32
-
-	DefaultWriteBufferSize uint16 = 256
-	DefaultReadBufferSize  uint16 = 256
-)
+const ACKBitsetSize = 32
 
 type (
 	Buffer = bytebufferpool.ByteBuffer
@@ -27,8 +22,8 @@ type writtenPacket struct {
 	resent  byte      // total number of times this packet was resent
 }
 
-func (p writtenPacket) shouldResend(now time.Time) bool {
-	return !p.acked && p.resent < 10 && now.Sub(p.written) >= 100*time.Millisecond
+func (p writtenPacket) shouldResend(now time.Time, ackTimeout time.Duration) bool {
+	return !p.acked && p.resent < 10 && now.Sub(p.written) >= ackTimeout
 }
 
 type PacketHeaderFlag uint8

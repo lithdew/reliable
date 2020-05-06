@@ -40,13 +40,14 @@ func main() {
 		host = ":0"
 	}
 
+	conn := listen(host)
+
 	counter := uint64(0)
 
 	handler := func(addr net.Addr, seq uint16, buf []byte) {
+		//log.Printf("%s->%s: (seq=%d) (size=%d)", addr.String(), conn.LocalAddr().String(), seq, len(buf))
 		atomic.AddUint64(&counter, 1)
 	}
-
-	conn := listen(host)
 
 	endpoint := reliable.NewEndpoint(conn, reliable.WithHandler(handler))
 	go endpoint.Listen()

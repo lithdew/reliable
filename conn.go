@@ -10,23 +10,25 @@ import (
 )
 
 type Conn struct {
-	writeBufferSize uint16
-	readBufferSize  uint16
+	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
+	readBufferSize  uint16 // read buffer size that must be a divisor of 65536
+
+	updatePeriod time.Duration // how often time-based parts of the protocol get checked
+	ackTimeout   time.Duration // how long we wait until unacked packets should be resent
 
 	conn    net.PacketConn
 	addr    net.Addr
 	pool    *Pool
 	handler Handler
 
-	mu sync.Mutex // mutex over everything
-
+	mu   sync.Mutex    // mutex over everything
 	die  bool          // is this conn closed?
 	exit chan struct{} // signal channel to close the conn
 
 	lui uint16    // last sent packet index that hasn't been sent via an ack yet
 	oui uint16    // oldest sent packet index that hasn't been acked yet
 	ouc sync.Cond // stop writes if the next write given oui may flood our peers read buffer
-	ack time.Time // last time some form of ack was sent
+	lsa time.Time // last time an ack was sent to our peer
 
 	wi uint16 // write index
 	ri uint16 // read index
@@ -50,6 +52,14 @@ func NewConn(conn net.PacketConn, addr net.Addr, opts ...ConnOption) *Conn {
 
 	if c.readBufferSize == 0 {
 		c.readBufferSize = DefaultReadBufferSize
+	}
+
+	if c.ackTimeout == 0 {
+		c.ackTimeout = DefaultACKTimeout
+	}
+
+	if c.updatePeriod == 0 {
+		c.updatePeriod = DefaultUpdatePeriod
 	}
 
 	if c.pool == nil {
@@ -130,7 +140,7 @@ func (c *Conn) nextAckDetails() (ack uint16, ackBits uint32) {
 }
 
 func (c *Conn) prepareAckBits(ack uint16) (ackBits uint32) {
-	for i, m := uint16(0), uint32(1); i < AckBitsetSize; i, m = i+1, m<<1 {
+	for i, m := uint16(0), uint32(1); i < ACKBitsetSize; i, m = i+1, m<<1 {
 		if c.rq[(ack-i)%uint16(len(c.rq))] != uint32(ack-i) {
 			continue
 		}
@@ -243,15 +253,15 @@ func (c *Conn) createAckIfNecessary() (header PacketHeader, needed bool) {
 
 	lui := c.lui
 
-	for i := uint16(0); i < AckBitsetSize; i++ {
+	for i := uint16(0); i < ACKBitsetSize; i++ {
 		if c.rq[(lui+i)%uint16(len(c.rq))] != uint32(lui+i) {
 			return header, needed
 		}
 	}
 
-	lui += AckBitsetSize
+	lui += ACKBitsetSize
 	c.lui = lui
-	c.ack = time.Now()
+	c.lsa = time.Now()
 
 	header.Sequence, header.ACK = c.nextWriteIndex(), lui-1
 	header.ACKBits = c.prepareAckBits(header.ACK)
@@ -281,7 +291,7 @@ func (c *Conn) readAckBits(ack uint16, ackBits uint32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for idx := uint16(0); idx < AckBitsetSize; idx, ackBits = idx+1, ackBits>>1 {
+	for idx := uint16(0); idx < ACKBitsetSize; idx, ackBits = idx+1, ackBits>>1 {
 		if ackBits&1 == 0 {
 			continue
 		}
@@ -356,7 +366,7 @@ func (c *Conn) trackAcked(ack uint16) {
 	}
 
 	c.lui = lui
-	c.ack = time.Now()
+	c.lsa = time.Now()
 }
 
 func (c *Conn) trackUnacked() {
@@ -401,15 +411,13 @@ func (c *Conn) Close() {
 
 	//if strings.Contains(c.conn.LocalAddr().String(), "44444") { // sending
 	//log.Printf("send closed (oldest_sent_ack_idx=%05d) (oldest_unacked_idx=%05d)", c.lui, c.oui)
-	//}
-
-	//if strings.Contains(c.conn.LocalAddr().String(), "55555") { // receiving
+	//} else if strings.Contains(c.conn.LocalAddr().String(), "55555") { // receiving
 	//log.Printf("recv closed (oldest_sent_ack_idx=%05d) (oldest_unacked_idx=%05d)", c.lui, c.oui)
 	//}
 }
 
 func (c *Conn) Run() error {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(c.updatePeriod)
 	defer ticker.Stop()
 
 	for {
@@ -421,9 +429,9 @@ func (c *Conn) Run() error {
 				return err
 			}
 
-			//if err := c.writeOverdueAck(); err != nil {
-			//	return err
-			//}
+			if err := c.writeOverdueAck(); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -434,7 +442,7 @@ func (c *Conn) retransmitUnackedPackets() error {
 
 	for idx := uint16(0); idx < uint16(len(c.wq)); idx++ {
 		i := (c.oui + idx) % uint16(len(c.wq))
-		if c.wq[i] != uint32(c.oui+idx) || !c.wqe[i].shouldResend(time.Now()) {
+		if c.wq[i] != uint32(c.oui+idx) || !c.wqe[i].shouldResend(time.Now(), c.ackTimeout) {
 			continue
 		}
 
@@ -454,45 +462,45 @@ func (c *Conn) retransmitUnackedPackets() error {
 	return nil
 }
 
-//func (c *Conn) createOverdueAck() (header PacketHeader, needed bool) {
-//	c.mu.Lock()
-//	defer c.mu.Unlock()
-//
-//	lui := c.lui
-//
-//	for i := uint16(0); i < AckBitsetSize; i++ {
-//		if c.rq[lui%uint16(len(c.rq))] != uint32(lui) {
-//			break
-//		}
-//		lui++
-//	}
-//	now := time.Now()
-//	if now.Sub(c.ack) < 100*time.Millisecond || lui == c.lui {
-//		return header, needed
-//	}
-//	c.lui = lui
-//	c.ack = now
-//
-//	header.seq, header.ack = c.nextWriteIndex(), lui-1
-//	header.ackBits = c.prepareAckBits(header.ack)
-//  header.acked = true
-//
-//	needed = true
-//
-//	return header, needed
-//}
-//
-//func (c *Conn) writeOverdueAck() error {
-//	header, needed := c.createOverdueAck()
-//	if !needed {
-//		return nil
-//	}
-//
-//	//log.Printf("%s: overdue (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), header.Sequence, header.ACK, header.ACKBits)
-//
-//	if err := c.write(header, nil); err != nil {
-//		return fmt.Errorf("failed to write overdue ack packet: %w", err)
-//	}
-//
-//	return nil
-//}
+func (c *Conn) createOverdueAck() (header PacketHeader, needed bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	lui := c.lui
+
+	for i := uint16(0); i < ACKBitsetSize; i++ {
+		if c.rq[lui%uint16(len(c.rq))] != uint32(lui) {
+			break
+		}
+		lui++
+	}
+	now := time.Now()
+	if lui == c.lui || now.Sub(c.lsa) < c.ackTimeout {
+		return header, needed
+	}
+	c.lui = lui
+	c.lsa = now
+
+	header.Sequence, header.ACK = c.nextWriteIndex(), lui-1
+	header.ACKBits = c.prepareAckBits(header.ACK)
+	header.Empty = true
+
+	needed = true
+
+	return header, needed
+}
+
+func (c *Conn) writeOverdueAck() error {
+	header, needed := c.createOverdueAck()
+	if !needed {
+		return nil
+	}
+
+	//log.Printf("%s: overdue (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), header.Sequence, header.ACK, header.ACKBits)
+
+	if err := c.write(header, nil); err != nil {
+		return fmt.Errorf("failed to write overdue ack packet: %w", err)
+	}
+
+	return nil
+}

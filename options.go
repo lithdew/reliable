@@ -1,5 +1,15 @@
 package reliable
 
+import "time"
+
+const (
+	DefaultWriteBufferSize uint16 = 256
+	DefaultReadBufferSize  uint16 = 256
+
+	DefaultUpdatePeriod = 100 * time.Millisecond
+	DefaultACKTimeout   = 100 * time.Millisecond
+)
+
 type ConnOption interface {
 	applyConn(c *Conn)
 }
@@ -50,3 +60,27 @@ func (o withHandler) applyConn(c *Conn)         { c.handler = o.handler }
 func (o withHandler) applyEndpoint(e *Endpoint) { e.handler = o.handler }
 
 func WithHandler(handler Handler) Option { return withHandler{handler: handler} }
+
+type withUpdatePeriod struct{ updatePeriod time.Duration }
+
+func (o withUpdatePeriod) applyConn(c *Conn)         { c.updatePeriod = o.updatePeriod }
+func (o withUpdatePeriod) applyEndpoint(e *Endpoint) { e.updatePeriod = o.updatePeriod }
+
+func WithUpdatePeriod(updatePeriod time.Duration) Option {
+	if updatePeriod == 0 {
+		panic("update period of zero is not supported yet")
+	}
+	return withUpdatePeriod{updatePeriod: updatePeriod}
+}
+
+type withACKTimeout struct{ ackTimeout time.Duration }
+
+func (o withACKTimeout) applyConn(c *Conn)         { c.ackTimeout = o.ackTimeout }
+func (o withACKTimeout) applyEndpoint(e *Endpoint) { e.ackTimeout = o.ackTimeout }
+
+func WithACKTimeout(ackTimeout time.Duration) Option {
+	if ackTimeout == 0 {
+		panic("ack timeout of zero is not supported yet")
+	}
+	return withACKTimeout{ackTimeout: ackTimeout}
+}
