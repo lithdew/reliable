@@ -86,10 +86,11 @@ I feel that this approach is best versus the popular alternatives like QUIC or S
 ## Todo
 
 1. Estimate the round-trip time (RTT) and adjust the system's packet re-transmission delay based off of it.
-2. Keep a cache of the string representations of passed-in `net.UDPAddr`.
-3. Reduce locking in as many code hot paths as possible.
-4. Networking statistics (packet loss, RTT, etc.).
-5. More unit tests.
+2. Encapsulate away protocol logic and `net.PacketConn`-related bits for a finer abstraction.
+3. Keep a cache of the string representations of passed-in `net.UDPAddr`.
+4. Reduce locking in as many code hot paths as possible.
+5. Networking statistics (packet loss, RTT, etc.).
+6. More unit tests.
 
 ## Usage
 
