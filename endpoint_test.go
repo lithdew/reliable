@@ -22,8 +22,8 @@ func BenchmarkEndpointWriteReliablePacket(b *testing.B) {
 	ca := newPacketConn(b, "127.0.0.1:0")
 	cb := newPacketConn(b, "127.0.0.1:0")
 
-	ea := NewEndpoint(ca, nil)
-	eb := NewEndpoint(cb, nil)
+	ea := NewEndpoint(ca)
+	eb := NewEndpoint(cb)
 
 	go ea.Listen()
 	go eb.Listen()

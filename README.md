@@ -99,6 +99,18 @@ In the case you are looking to quickly get a project or demo up and running, use
 $ go get github.com/lithdew/reliable
 ```
 
+## Benchmarks
+
+```
+$ go test -bench=. -benchtime=10s
+goos: linux
+goarch: amd64
+pkg: github.com/lithdew/reliable
+BenchmarkEndpointWriteReliablePacket-8           1361272              7787 ns/op             184 B/op          9 allocs/op
+BenchmarkMarshalPacketHeader-8                  714252915               15.9 ns/op             0 B/op          0 allocs/op
+BenchmarkUnmarshalPacketHeader-8                826948872               16.2 ns/op             0 B/op          0 allocs/op
+```
+
 ## Example
 
 You may run the example below by executing the following command:
