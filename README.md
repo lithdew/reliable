@@ -13,7 +13,7 @@ With only 9 bytes of packet overhead at most, what **reliable** does for your UD
 3. handle resending sent packets whose recipient hasn't been acknowledged after some timeout, and
 4. handle stopping/buffering up packets to be sent when the recipients read buffer is suspected to be full.
 
-** This project is still a WIP! Scrub through the _FIXME_ and _TODO_ comments in the source code, write some unit tests, or open up a Github issue if you would like to help out!
+** This project is still a WIP! Scrub through the source code, write some unit tests, help out with documentation, or open up a Github issue if you would like to help out or have any questions!
 
 ## Protocol
 
