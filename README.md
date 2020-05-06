@@ -81,9 +81,7 @@ In many cases, a lot of the features provided by these libraries were either not
 
 So, I began working on a modular approach and decided to abstract away the reliability portion of protocols I have built into a separate library.
 
-I feel that this approach is best versus the popular alternatives like QUIC or SCTP that may do just a bit too much for you.
-
-After all, getting _just_ the reliability bits of a UDP-based protocol is hard enough. Might as well modularize it into a separate library and get it heavily tested and stabilized, eh?
+I feel that this approach is best versus the popular alternatives like QUIC or SCTP that may do just a bit too much for you. After all, getting _just_ the reliability bits of a UDP-based protocol is hard enough. Might as well modularize it into a separate library and get it heavily tested and stabilized, eh?
 
 ## Todo
 
@@ -93,15 +91,15 @@ After all, getting _just_ the reliability bits of a UDP-based protocol is hard e
 
 ## Usage
 
+In the case you are looking to quickly get a project or demo up and running, it is recommended you use `Endpoint`. 
+
+When plugging **reliable** into your own custom-built UDP networking protocol, consider ditching `Endpoint` completely and directly work with `Conn`. 
+
 **reliable** uses Go modules. To include it in your project, run the following command:
 
 ```
 $ go get github.com/lithdew/reliable
 ```
-
-In the case you are looking to quickly get a project or demo up and running, it is recommended you use `Endpoint`. 
-
-When plugging **reliable** into your own custom-built UDP networking protocol, consider to ditch `Endpoint` completely and directly work with `NewConn`.
 
 ## Example
 
@@ -218,7 +216,11 @@ func main() {
 				numPackets := atomic.SwapUint64(&NumPackets, 0)
 				numBytes := float64(numPackets) * 1400.0 / 1024.0 / 1024.0
 
-				log.Printf("Sent %d packet(s) comprised of %.2f MiB worth of data.", numPackets, numBytes)
+				log.Printf(
+                    "Sent %d packet(s) comprised of %.2f MiB worth of data.",
+                     numPackets,
+                     numBytes,
+                )
 			}
 		}
 	}()
