@@ -26,52 +26,46 @@ func check(err error) {
 	}
 }
 
-func handler(_ net.Addr, _ uint16, buf []byte) {
-	if len(buf) == 0 {
-		return
-	}
-
-	if !bytes.Equal(buf, PacketData) {
-		spew.Dump(buf)
-		os.Exit(1)
-	}
-}
-
-func newPacketConn() net.PacketConn {
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+func listen(addr string) net.PacketConn {
+	conn, err := net.ListenPacket("udp", addr)
 	check(err)
 	return conn
+}
+
+func handler(_ net.Addr, _ uint16, buf []byte) {
+	if bytes.Equal(buf, PacketData) {
+		return
+	}
+	spew.Dump(buf)
+	os.Exit(1)
 }
 
 func main() {
 	exit := make(chan struct{})
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(2)
 
-	a := reliable.NewEndpoint(newPacketConn(), reliable.WithHandler(handler))
-	b := reliable.NewEndpoint(newPacketConn(), reliable.WithHandler(handler))
+	ca := listen("127.0.0.1:44444")
+	cb := listen("127.0.0.1:55555")
+
+	a := reliable.NewEndpoint(ca, reliable.WithHandler(handler))
+	b := reliable.NewEndpoint(cb, reliable.WithHandler(handler))
 
 	defer func() {
+		close(exit)
+
 		check(a.Close())
 		check(b.Close())
 
-		close(exit)
+		check(ca.Close())
+		check(cb.Close())
 
 		wg.Wait()
 	}()
 
-	// The two goroutines below are to have endpoints A and B listen for new peers.
-
-	go func() {
-		defer wg.Done()
-		a.Listen()
-	}()
-
-	go func() {
-		defer wg.Done()
-		b.Listen()
-	}()
+	go a.Listen()
+	go b.Listen()
 
 	// The two goroutines below have endpoint A spam endpoint B, and print out how
 	// many packets of data are being sent per second.
@@ -80,12 +74,13 @@ func main() {
 		defer wg.Done()
 
 		for {
-			if err := a.WriteTo(PacketData, b.Addr()); err != nil {
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				check(err)
+			select {
+			case <-exit:
+				return
+			default:
 			}
+
+			check(a.WriteReliablePacket(PacketData, b.Addr()))
 			atomic.AddUint64(&NumPackets, 1)
 		}
 	}()

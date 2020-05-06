@@ -1,14 +1,12 @@
 package reliable
 
 import (
-	"errors"
-	"fmt"
-	"github.com/valyala/bytebufferpool"
 	"io"
 	"math"
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Handler func(addr net.Addr, seq uint16, buf []byte)
@@ -17,74 +15,124 @@ type Endpoint struct {
 	writeBufferSize uint16
 	readBufferSize  uint16
 
-	mu      sync.Mutex
-	wg      sync.WaitGroup
-	closing uint32
+	mu sync.Mutex
+	wg sync.WaitGroup
 
-	conn net.PacketConn
-	pool *bytebufferpool.Pool
-
-	clients map[string]*Client
+	pool    *Pool
 	handler Handler
+
+	conn  net.PacketConn
+	conns map[string]*Conn
+
+	closing uint32
 }
 
-func NewEndpoint(conn net.PacketConn, opts ...Option) *Endpoint {
-	endpoint := &Endpoint{
-		conn:    conn,
-		clients: make(map[string]*Client),
-	}
+func NewEndpoint(conn net.PacketConn, opts ...EndpointOption) *Endpoint {
+	e := &Endpoint{conn: conn, conns: make(map[string]*Conn)}
 
 	for _, opt := range opts {
-		opt.applyEndpoint(endpoint)
+		opt.applyEndpoint(e)
 	}
 
-	if endpoint.writeBufferSize == 0 {
-		endpoint.writeBufferSize = DefaultWriteBufferSize
+	if e.writeBufferSize == 0 {
+		e.writeBufferSize = DefaultWriteBufferSize
 	}
 
-	if endpoint.readBufferSize == 0 {
-		endpoint.readBufferSize = DefaultReadBufferSize
+	if e.readBufferSize == 0 {
+		e.readBufferSize = DefaultReadBufferSize
 	}
 
-	if endpoint.pool == nil {
-		endpoint.pool = new(bytebufferpool.Pool)
+	if 65536%uint32(e.writeBufferSize) != 0 {
+		panic("endpoint: write buffer size must be smaller than 65536 and a power of two")
 	}
 
-	return endpoint
+	if 65536%uint32(e.readBufferSize) != 0 {
+		panic("endpoint: read buffer size must be smaller than 65536 and a power of two")
+	}
+
+	if e.pool == nil {
+		e.pool = new(Pool)
+	}
+
+	return e
 }
 
-func (e *Endpoint) getClient(addr net.Addr) *Client {
-	if atomic.LoadUint32(&e.closing) == 1 {
-		return nil
-	}
+func (e *Endpoint) getConn(addr net.Addr) *Conn {
+	id := addr.String()
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	client, exists := e.clients[addr.String()]
-	if !exists {
-		client = NewClient(
+	conn := e.conns[id]
+	if conn == nil {
+		if atomic.LoadUint32(&e.closing) == 1 {
+			return nil
+		}
+
+		conn = NewConn(
 			e.conn,
 			addr,
 			WithWriteBufferSize(e.writeBufferSize),
 			WithReadBufferSize(e.readBufferSize),
-			WithHandler(e.handler),
 			WithBufferPool(e.pool),
+			WithHandler(e.handler),
 		)
 
 		e.wg.Add(1)
 		go func() {
 			defer e.wg.Done()
-			client.Start()
+			check(conn.Run())
 		}()
 
-		e.clients[addr.String()] = client
+		e.conns[id] = conn
 	}
-	return client
+
+	return conn
+}
+
+func (e *Endpoint) clearConn(addr net.Addr) {
+	id := addr.String()
+
+	e.mu.Lock()
+	conn := e.conns[id]
+	delete(e.conns, id)
+	e.mu.Unlock()
+
+	conn.Close()
+}
+
+func (e *Endpoint) clearConns() {
+	e.mu.Lock()
+	conns := make([]*Conn, 0, len(e.conns))
+	for id, conn := range e.conns {
+		conns = append(conns, conn)
+		delete(e.conns, id)
+	}
+	e.mu.Unlock()
+
+	for _, conn := range conns {
+		conn.Close()
+	}
 }
 
 func (e *Endpoint) Addr() net.Addr {
 	return e.conn.LocalAddr()
+}
+
+func (e *Endpoint) WriteReliablePacket(buf []byte, addr net.Addr) error {
+	conn := e.getConn(addr)
+	if conn == nil {
+		return io.EOF
+	}
+	return conn.WriteReliablePacket(buf)
+}
+
+func (e *Endpoint) WriteUnreliablePacket(buf []byte, addr net.Addr) error {
+	conn := e.getConn(addr)
+	if conn == nil {
+		return io.EOF
+	}
+	return conn.WriteUnreliablePacket(buf)
 }
 
 func (e *Endpoint) Listen() {
@@ -101,74 +149,33 @@ func (e *Endpoint) Listen() {
 	)
 
 	buf := make([]byte, math.MaxUint16+1)
-
 	for {
-		n, addr, err = e.conn.ReadFrom(buf)
-		if err == nil {
-			err = e.ReceiveFrom(buf[:n], addr)
-		}
+		err = e.conn.SetDeadline(time.Now().Add(1 * time.Second))
 		if err != nil {
-			var netErr *net.OpError
-			if errors.As(err, &netErr) {
-				if netErr.Err.Error() == "use of closed network connection" {
-					err = fmt.Errorf("%s: %w", err, io.EOF)
-				}
-			}
+			break
+		}
 
-			if errors.Is(err, io.EOF) {
-				break
-			}
+		n, addr, err = e.conn.ReadFrom(buf)
+		if err != nil {
+			break
+		}
 
-			continue
+		conn := e.getConn(addr)
+		if conn == nil {
+			break
+		}
+
+		err = conn.Read(buf[:n])
+		if err != nil {
+			e.clearConn(addr)
 		}
 	}
 
-	// If Close() was not called, then manually close the connection.
-
-	closing := !atomic.CompareAndSwapUint32(&e.closing, 0, 1)
-
-	if !closing {
-		if closeErr := e.conn.Close(); closeErr != nil {
-			err = fmt.Errorf("%s: %w", closeErr, err)
-		}
-	}
-
-	// Cleanup all clients.
-
-	for addr, client := range e.clients {
-		delete(e.clients, addr)
-		client.Close()
-	}
+	e.clearConns()
 }
 
 func (e *Endpoint) Close() error {
-	if !atomic.CompareAndSwapUint32(&e.closing, 0, 1) {
-		return nil
-	}
-
-	if err := e.conn.Close(); err != nil {
-		return fmt.Errorf("failed to close packet conn: %w", err)
-	}
-
-	e.mu.Lock()
+	atomic.StoreUint32(&e.closing, 1)
 	e.wg.Wait()
-	e.mu.Unlock()
-
 	return nil
-}
-
-func (e *Endpoint) WriteTo(buf []byte, addr net.Addr) error {
-	client := e.getClient(addr)
-	if client == nil {
-		return io.EOF
-	}
-	return client.Write(buf)
-}
-
-func (e *Endpoint) ReceiveFrom(buf []byte, addr net.Addr) error {
-	client := e.getClient(addr)
-	if client == nil {
-		return io.EOF
-	}
-	return client.Receive(buf)
 }

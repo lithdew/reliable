@@ -1,7 +1,6 @@
 package reliable
 
 import (
-	"fmt"
 	"github.com/lithdew/bytesutil"
 	"github.com/valyala/bytebufferpool"
 	"io"
@@ -10,23 +9,26 @@ import (
 )
 
 const (
-	MaxPacketHeaderSize = 9
-	FragmentHeaderSize  = 5
-	AckBitsetSize       = 32
+	AckBitsetSize = 32
 
 	DefaultWriteBufferSize uint16 = 256
 	DefaultReadBufferSize  uint16 = 256
 )
 
-type SentPacket struct {
-	time  time.Time
-	acked bool
-	buf   *bytebufferpool.ByteBuffer
+type (
+	Buffer = bytebufferpool.ByteBuffer
+	Pool   = bytebufferpool.Pool
+)
+
+type writtenPacket struct {
+	buf     *Buffer   // pooled contents of this packet
+	acked   bool      // whether or not this packet was acked
+	written time.Time // last time the packet was written
+	resent  byte      // total number of times this packet was resent
 }
 
-type RecvPacket struct {
-	time time.Time
-	size int
+func (p writtenPacket) shouldResend(now time.Time) bool {
+	return !p.acked && p.resent < 10 && now.Sub(p.written) >= 100*time.Millisecond
 }
 
 type PacketHeaderFlag uint8
@@ -38,6 +40,7 @@ const (
 	FlagC
 	FlagD
 	FlagACKEncoded
+	FlagACK
 	FlagUnordered
 )
 
@@ -58,6 +61,7 @@ type PacketHeader struct {
 	ack       uint16
 	ackBits   uint32
 	unordered bool
+	acked     bool
 }
 
 func (p PacketHeader) AppendTo(dst []byte) []byte {
@@ -75,6 +79,9 @@ func (p PacketHeader) AppendTo(dst []byte) []byte {
 	}
 	if p.ackBits&0xFF000000 != 0xFF000000 {
 		flag = flag.Toggle(FlagD)
+	}
+	if p.acked {
+		flag = flag.Toggle(FlagACK)
 	}
 	if p.unordered {
 		flag = flag.Toggle(FlagUnordered)
@@ -140,6 +147,7 @@ func UnmarshalPacketHeader(buf []byte) (header PacketHeader, leftover []byte, er
 		return header, buf, io.ErrUnexpectedEOF
 	}
 
+	header.acked = flag.Toggled(FlagACK)
 	header.unordered = flag.Toggled(FlagUnordered)
 
 	if header.unordered {
@@ -196,80 +204,6 @@ func UnmarshalPacketHeader(buf []byte) (header PacketHeader, leftover []byte, er
 		header.ackBits |= uint32(buf[0]) << 24
 		buf = buf[1:]
 	}
-
-	return header, buf, nil
-}
-
-type Fragment struct {
-	recv  int
-	total int
-
-	buf *bytebufferpool.ByteBuffer
-
-	headerSize int
-	packetSize int
-
-	marked [4]uint64
-}
-
-func (f *Fragment) MarkReceived(id byte) error {
-	idx, pos := id>>6, uint64(1<<(id&63))
-	if f.marked[idx]&pos != 0 {
-		return fmt.Errorf("ignoring fragment: fragment %d was already received", id)
-	}
-	f.marked[idx] |= pos
-	return nil
-}
-
-func (f *Fragment) Reset() {
-	*f = Fragment{}
-}
-
-type FragmentHeader struct {
-	seq   uint16
-	id    uint8
-	total uint8
-}
-
-func (f FragmentHeader) Validate(maxFragments int) error {
-	if f.id > f.total {
-		return fmt.Errorf("fragment id > total num fragments (fragment id: %d, total num fragments: %d)",
-			f.id,
-			f.total,
-		)
-	}
-
-	if int(f.total)+1 > maxFragments {
-		return fmt.Errorf("max amount of fragments a packet can be partitioned into is %d, but got %d fragment(s)",
-			f.total,
-			maxFragments,
-		)
-	}
-
-	return nil
-}
-
-func (f FragmentHeader) AppendTo(dst []byte) []byte {
-	dst = FlagFragment.AppendTo(dst)
-	dst = bytesutil.AppendUint16BE(dst, f.seq)
-	dst = append(dst, f.id, f.total)
-	return dst
-}
-
-func UnmarshalFragmentHeader(buf []byte) (header FragmentHeader, leftover []byte, err error) {
-	if len(buf) < FragmentHeaderSize {
-		return header, buf, fmt.Errorf("got %d byte(s), expected at least %d byte(s): %w",
-			len(buf),
-			FragmentHeaderSize,
-			io.ErrUnexpectedEOF,
-		)
-	}
-
-	buf = buf[1:]
-
-	header.seq, buf = bytesutil.Uint16BE(buf[0:2]), buf[2:]
-	header.id, buf = buf[0], buf[1:]
-	header.total, buf = buf[0], buf[1:]
 
 	return header, buf, nil
 }

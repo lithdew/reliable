@@ -22,19 +22,6 @@ func TestEncodeDecodePacketHeader(t *testing.T) {
 	require.NoError(t, quick.Check(f, &quick.Config{MaxCount: 1000}))
 }
 
-func TestEncodeDecodeFragmentHeader(t *testing.T) {
-	buf := bytebufferpool.Get()
-	defer bytebufferpool.Put(buf)
-
-	f := func(seq uint16, id, total uint8) bool {
-		header := FragmentHeader{seq: seq, id: id, total: total}
-		recovered, leftover, err := UnmarshalFragmentHeader(header.AppendTo(buf.B[:0]))
-		return assert.NoError(t, err) && assert.Len(t, leftover, 0) && assert.EqualValues(t, header, recovered)
-	}
-
-	require.NoError(t, quick.Check(f, &quick.Config{MaxCount: 1000}))
-}
-
 func BenchmarkMarshalPacketHeader(b *testing.B) {
 	header := PacketHeader{seq: math.MaxUint16, ack: math.MaxUint16, ackBits: math.MaxUint32}
 

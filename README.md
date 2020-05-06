@@ -6,57 +6,102 @@
 
 **reliable** is a reliability layer for UDP connections in Go.
 
-It allows you to bootstrap over a UDP's susceptibility to packet loss, lack of ordering of packets, and granularly introduce packet ordering, peer acknowledgement over the recipient of packets, and more.
+With only 9 bytes of packet overhead at most, what **reliable** does for your UDP-based application is:
 
-The reliability layer is based off of [reliable.io](https://github.com/networkprotocol/reliable.io), which is described further in detail by Glenn Fiedler's blog post [here](https://gafferongames.com/post/reliable_ordered_messages/).
+1. handle acknowledgement over the recipient of packets you sent,
+2. handle sending acknowledgements when too many are being buffered up,
+3. handle resending sent packets whose recipient hasn't been acknowledged after some timeout, and
+4. handle stopping/buffering up packets to be sent when the recipients read buffer is suspected to be full.
 
-It was chosen for its nice property of having metadata retaining all packets acknowledged by a peer being redundantly distributed across all packets, which significantly reduces chances for packet loss.
+** This project is still a WIP! Scrub through the _FIXME_ and _TODO_ comments in the source code, write some unit tests, or open up a Github issue if you would like to help out!
 
-**reliable** also includes the additional following features from [networkprotocol/reliable.io](https://github.com/networkprotocol/reliable.io):
+## Protocol
 
-1. Packets being handled by the reliability layer that have yet to be acknowledged are re-transmitted every 100ms.
-2. A flag may be set on packets to optionally avoid being handled by the reliability layer.
-3. Packets stop being sent when it is suspected the recipients read buffer is full.
-4. Packet acknowledgements are automatically sent when too many are buffered up.
+### Packet Header
 
-** This project is still a WIP! Scrub through the _FIXME_ and _TODO_ comments in the source code, or open up a Github issue if you would like to help out!
+**reliable** uses the same packet header layout described in [`networkprotocol/reliable.io`](https://github.com/networkprotocol/reliable.io).
+
+All packets start with a single byte (8 bits) representing 8 different flags. Packets are sequential and are numbered using an unsigned 16-bit integer included in the packet header.
+
+Packet acknowledgements (ACKs) are redundantly included in every sent packet using a total of 5 bytes: two bytes representing an unsigned 16-bit packet sequence number (ack), and three bytes representing a 32-bit bitfield (ackBits).
+
+The packet header layout, much like [`networkprotocol/reliable.io`](https://github.com/networkprotocol/reliable.io), is delta-encoded and RLE-encoded to reduce the overhead per-packet.
+
+### Packet Acknowledgements
+
+Given a packet we have just received from our peer, for each set bit (i) in the bitfield (ackBits), we mark a packet we have sent to be acknowledged if its sequence number is (ack - i).
+
+In the case of peer A sending packets to B, with B not sending any packets at all to A, B will send an empty packet for every 32 packets received from A so that A will be aware that B has acknowledged its packets.
+
+More explicitly, a counter (lui), is maintained representing the last consecutive packet sequence number that we have received whose acknowledgement we have told to our peer about.
+
+For example, if (lui) is 0, and we have sent acknowledgements for packets whose sequence numbers are 2, 3, 4, and 6, and we have then acknowledged packet sequence number 1, then lui would be 4.
+
+Upon updating (lui), if the next 32 consecutive sequence numbers are sequence numbers of packets we have previously received, we will increment (lui) by 32 and send a single empty packet containing the following packet acknowledgements: (ack=lui+31, ackBits=[lui,lui+31]).
+
+### Packet Buffering
+
+Two fixed-sized sequence buffers are maintained for packets we have sent (wq), and packets we have received (rq). The size fixed for these buffers must be evenly divide into the max value of an unsigned 16-bit integer (65536). The data structure is described in [this blog post by Glenn Fiedler](https://gafferongames.com/post/reliable_ordered_messages/).
+
+We keep track of a counter (oui), representing the last consecutive sequence number of a packet we have sent that was acknowledged by our peer. For example, if we have sent packets whose sequence numbers are in the range [0, 256], and we have received acknowledgements for packets (0, 1, 2, 3, 4, 8, 9, 10, 11, 12), then (oui) would be 4.
+
+Let cap(q) be the fixed size or capacity of sequence buffer q.
+
+While sending packets, we intermittently stop and buffer the sending of packets if we believe sending more packets would overflow the read buffer of our recipient. More explicitly, if the next packet we sent is assigned a packet number greater than (oui + cap(rq)), we stop all sends until oui has incremented through the recipient of a packet from our peer.
+
+### Retransmitting Lost Packets
+
+The logic for retransmitting stale, unacknowledged sent packets and maintaining acknowledgements was taken with credit to [this blog post by Glenn Fiedler](https://gafferongames.com/post/reliable_ordered_messages/).
+
+Packets are suspected to be lost if they are not acknowledged by their recipient after 100ms. Once a packet is suspected to be lost, it is resent. As of right now, packets are resent for a maximum of 10 times.
+
+It might be wise to not allow packets to be resent a capped number of times, and to leave it up to the developer. However, that is open for discussion which I am happy to have over on my Discord server or through a Github issue.
 
 ## Rationale
 
 On my quest for finding a feasible solution against TCP head-of-line blocking, I looked through a _lot_ of reliable UDP libraries in Go, with the majority primarily suited for either file transfer or gaming:
 
-1. [jakecoffman/rely](https://github.com/jakecoffman/rely)
-2. [obsilp/rmnp](https://github.com/obsilp/rmnp)
-3. [xtaci/kcp-go](https://github.com/xtaci/kcp-go)
-4. [ooclab/es](https://github.com/ooclab/es/tree/master/proto/udp)
-5. [arl/udpnet](https://github.com/arl/udpnet)
-6. [warjiang/utp](https://github.com/warjiang/utp/tree/master/utp)
-7. [go-guoyk/sptp](https://github.com/go-guoyk/sptp)
-8. [spance/suft](https://github.com/spance/suft/)
+1. A direct port of the reference C implementation of [networkprotocol/reliable.io](https://github.com/networkprotocol/reliable.io): [jakecoffman/rely](https://github.com/jakecoffman/rely)
+2. A realtime multiplayer network gaming protocol: [obsilp/rmnp](https://github.com/obsilp/rmnp)
+3. A reliable, production-grade ARQ protocol: [xtaci/kcp-go](https://github.com/xtaci/kcp-go)
+4. An encrypted session-based streaming protocol: [ooclab/es](https://github.com/ooclab/es/tree/master/proto/udp)
+5. A game networking protocol: [arl/udpnet](https://github.com/arl/udpnet)
+6. A direct port of uTP (Micro Transport Protocol): [warjiang/utp](https://github.com/warjiang/utp/tree/master/utp)
+7. A protocol for sending arbitrarily large, chunked amounts of data: [go-guoyk/sptp](https://github.com/go-guoyk/sptp)
+8. A small-scale fast transmission protocol: [spance/suft](https://github.com/spance/suft/)
+9. A direct port of QUIC: [lucas-clemente/quic-go](https://github.com/lucas-clemente/quic-go)
 
-I felt that they did _just_ a little too much, as all I wanted was a modular reliability layer that I can plug into my existing UDP-based networking protocol.
+Going through all of them, I felt that they just did a little too much for me. For my work and side projects, I have been working heavily on decentralized p2p networking protocols that suffer heavily from operating in high-latency and high packet loss environments.
 
-After all, getting the reliability layer of a protocol right and performant is hard, and honestly something you only want to have to ever worry about once.
+In many cases, a lot of the features provided by these libraries were either not needed, or honestly felt like they would best be handled and thought through by the developer using these libraries. For example:
+ 
+1. handshaking/session management
+2. packet fragmentation/reassembly
+3. packet encryption/decryption
 
-As a result, I started crufting up some time to work on creating **reliable**.
+So, I began working on a modular approach and decided to abstract away the reliability portion of protocols I have built into a separate library.
 
-## Features
+I feel that this approach is best versus the popular alternatives like QUIC or SCTP that may do just a bit too much for you.
 
-1. Uses only one goroutine per [`net.PacketConn`](https://golang.org/pkg/net/#PacketConn), and one goroutine per incoming client.
-2. Byte buffer pools used for the protocol are instantiated per [`net.PacketConn`](https://golang.org/pkg/net/#PacketConn). You may pass in your own [byte buffer pool](https://github.com/valyala/bytebufferpool) as well.
-3. Minimal overhead of at most 9 bytes per packet.
+After all, getting _just_ the reliability bits of a UDP-based protocol is hard enough. Might as well modularize it into a separate library and get it heavily tested and stabilized, eh?
 
-## What's missing?
+## Todo
 
-1. Packet fragmentation/reassembly is still missing. Packets must be reasonably kept in terms of size under MTU (~1400 bytes).
-2. Reduce locking/use of channels in as many code hot paths as possible.
-3. Networking statistics (packet loss, RTT, etc.).
+1. Reduce locking in as many code hot paths as possible.
+2. Networking statistics (packet loss, RTT, etc.).
+3. More unit tests.
 
 ## Usage
+
+**reliable** uses Go modules. To include it in your project, run the following command:
 
 ```
 $ go get github.com/lithdew/reliable
 ```
+
+In the case you are looking to quickly get a project or demo up and running, it is recommended you use `Endpoint`. 
+
+When plugging **reliable** into your own custom-built UDP networking protocol, consider to ditch `Endpoint` completely and directly work with `NewConn`.
 
 ## Example
 
@@ -65,6 +110,11 @@ You may run the example below by executing the following command:
 ```
 $ go run github.com/lithdew/reliable/examples/basic
 ```
+
+This example demonstrates:
+
+1. how to quickly construct two UDP endpoints listening on ports 44444 and 55555, and
+2. how to have the UDP endpoint at port 44444 spam 1400-byte packets to the UDP endpoint at port 55555 as fast as possible.
 
 ```go
 package main
@@ -95,52 +145,46 @@ func check(err error) {
 	}
 }
 
-func handler(_ net.Addr, _ uint16, buf []byte) {
-	if len(buf) == 0 {
-		return
-	}
-
-	if !bytes.Equal(buf, PacketData) {
-		spew.Dump(buf)
-		os.Exit(1)
-	}
-}
-
-func newPacketConn() net.PacketConn {
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+func listen(addr string) net.PacketConn {
+	conn, err := net.ListenPacket("udp", addr)
 	check(err)
 	return conn
+}
+
+func handler(_ net.Addr, _ uint16, buf []byte) {
+	if bytes.Equal(buf, PacketData) {
+		return
+	}
+	spew.Dump(buf)
+	os.Exit(1)
 }
 
 func main() {
 	exit := make(chan struct{})
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(2)
 
-	a := reliable.NewEndpoint(newPacketConn(), reliable.WithHandler(handler))
-	b := reliable.NewEndpoint(newPacketConn(), reliable.WithHandler(handler))
+	ca := listen("127.0.0.1:44444")
+	cb := listen("127.0.0.1:55555")
+
+	a := reliable.NewEndpoint(ca, reliable.WithHandler(handler))
+	b := reliable.NewEndpoint(cb, reliable.WithHandler(handler))
 
 	defer func() {
+		close(exit)
+
 		check(a.Close())
 		check(b.Close())
 
-		close(exit)
+		check(ca.Close())
+		check(cb.Close())
 
 		wg.Wait()
 	}()
 
-	// The two goroutines below are to have endpoints A and B listen for new peers.
-
-	go func() {
-		defer wg.Done()
-		a.Listen()
-	}()
-
-	go func() {
-		defer wg.Done()
-		b.Listen()
-	}()
+	go a.Listen()
+	go b.Listen()
 
 	// The two goroutines below have endpoint A spam endpoint B, and print out how
 	// many packets of data are being sent per second.
@@ -149,12 +193,13 @@ func main() {
 		defer wg.Done()
 
 		for {
-			if err := a.WriteTo(PacketData, b.Addr()); err != nil {
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				check(err)
+			select {
+			case <-exit:
+				return
+			default:
 			}
+
+			check(a.WriteReliablePacket(PacketData, b.Addr()))
 			atomic.AddUint64(&NumPackets, 1)
 		}
 	}()

@@ -5,108 +5,133 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 	"net"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
 
-func newPacketConn(t testing.TB) net.PacketConn {
+func newPacketConn(t testing.TB, addr string) net.PacketConn {
 	t.Helper()
-
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	conn, err := net.ListenPacket("udp", addr)
 	require.NoError(t, err)
-
 	return conn
 }
 
-func TestEndpointListenClose(t *testing.T) {
-	defer goleak.VerifyNone(t)
+func BenchmarkEndpointWriteReliablePacket(b *testing.B) {
+	ca := newPacketConn(b, "127.0.0.1:0")
+	cb := newPacketConn(b, "127.0.0.1:0")
 
-	x := NewEndpoint(newPacketConn(t))
-	y := NewEndpoint(newPacketConn(t))
+	ea := NewEndpoint(ca, nil)
+	eb := NewEndpoint(cb, nil)
 
-	go x.Listen()
-	go y.Listen()
-
-	defer func() {
-		require.NoError(t, x.Close())
-		require.NoError(t, y.Close())
-	}()
-}
-
-func TestEndpoint(t *testing.T) {
-	defer goleak.VerifyNone(t)
-
-	count := uint32(0)
-
-	handler := func(_ net.Addr, seq uint16, buf []byte) {
-		if len(buf) == 0 {
-			return
-		}
-		atomic.AddUint32(&count, 1)
-	}
-
-	x := NewEndpoint(newPacketConn(t), WithHandler(handler))
-	y := NewEndpoint(newPacketConn(t), WithHandler(handler))
-
-	go x.Listen()
-	go y.Listen()
+	go ea.Listen()
+	go eb.Listen()
 
 	defer func() {
-		require.NoError(t, x.Close())
-		require.NoError(t, y.Close())
+		require.NoError(b, ea.Close())
+		require.NoError(b, eb.Close())
 
-		//fmt.Println(atomic.LoadUint32(&count)) FIXME(kenta): the count must be 4096, but isn't
+		require.NoError(b, ca.Close())
+		require.NoError(b, cb.Close())
 	}()
 
-	data := bytes.Repeat([]byte("a"), 1400)
-
-	for i := 0; i < 4096; i++ {
-		require.NoError(t, x.WriteTo(data, y.Addr()))
-	}
-}
-
-func TestEndpointEndToEnd(t *testing.T) {
-	defer goleak.VerifyNone(t)
-
-	x := NewEndpoint(newPacketConn(t))
-	y := NewEndpoint(newPacketConn(t))
-
-	go x.Listen()
-	go y.Listen()
-
-	defer func() {
-		require.NoError(t, x.Close())
-		require.NoError(t, y.Close())
-	}()
-
-	data := bytes.Repeat([]byte("a"), 1400)
-
-	for i := 0; i < 4096; i++ {
-		require.NoError(t, x.WriteTo(data, y.Addr()))
-		require.NoError(t, y.WriteTo(data, x.Addr()))
-	}
-}
-
-func BenchmarkEndpoint(b *testing.B) {
-	x := NewEndpoint(newPacketConn(b))
-	y := NewEndpoint(newPacketConn(b))
-
-	go x.Listen()
-	go y.Listen()
-
-	defer func() {
-		require.NoError(b, x.Close())
-		require.NoError(b, y.Close())
-	}()
-
-	data := bytes.Repeat([]byte("a"), 1400)
+	data := bytes.Repeat([]byte("x"), 1400)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if err := x.WriteTo(data, y.Addr()); err != nil {
+		if err := ea.WriteReliablePacket(data, eb.Addr()); err != nil && !isEOF(err) {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestEndpointWriteReliablePacket(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	var mu sync.Mutex
+
+	values := make(map[string]struct{})
+
+	actual := uint64(0)
+	expected := uint64(65536)
+
+	handler := func(_ net.Addr, seq uint16, buf []byte) {
+		atomic.AddUint64(&actual, 1)
+
+		mu.Lock()
+		_, exists := values[string(buf)]
+		delete(values, string(buf))
+		mu.Unlock()
+
+		require.True(t, exists)
+	}
+
+	ca := newPacketConn(t, "127.0.0.1:0")
+	cb := newPacketConn(t, "127.0.0.1:0")
+
+	a := NewEndpoint(ca, WithHandler(handler))
+	b := NewEndpoint(cb, WithHandler(handler))
+
+	go a.Listen()
+	go b.Listen()
+
+	defer func() {
+		require.NoError(t, a.Close())
+		require.NoError(t, b.Close())
+
+		require.NoError(t, ca.Close())
+		require.NoError(t, cb.Close())
+
+		require.EqualValues(t, expected, atomic.LoadUint64(&actual))
+	}()
+
+	for i := uint64(0); i < expected; i++ {
+		data := strconv.AppendUint(nil, i, 10)
+
+		mu.Lock()
+		values[string(data)] = struct{}{}
+		mu.Unlock()
+
+		require.NoError(t, a.WriteReliablePacket(data, b.Addr()))
+	}
+}
+
+func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	actual := uint64(0)
+	expected := uint64(512)
+
+	handler := func(_ net.Addr, seq uint16, buf []byte) {
+		atomic.AddUint64(&actual, 1)
+	}
+
+	ca := newPacketConn(t, "127.0.0.1:0")
+	cb := newPacketConn(t, "127.0.0.1:0")
+
+	a := NewEndpoint(ca, WithHandler(handler))
+	b := NewEndpoint(cb, WithHandler(handler))
+
+	go a.Listen()
+	go b.Listen()
+
+	defer func() {
+		require.NoError(t, a.Close())
+		require.NoError(t, b.Close())
+
+		require.NoError(t, ca.Close())
+		require.NoError(t, cb.Close())
+
+		require.EqualValues(t, expected*2, atomic.LoadUint64(&actual))
+	}()
+
+	for i := uint64(0); i < expected; i++ {
+		data := strconv.AppendUint(nil, i, 10)
+
+		require.NoError(t, a.WriteReliablePacket(data, b.Addr()))
+		require.NoError(t, b.WriteReliablePacket(data, a.Addr()))
 	}
 }

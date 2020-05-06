@@ -1,4 +1,4 @@
-package main
+package reliable
 
 import (
 	"github.com/stretchr/testify/require"
@@ -11,7 +11,7 @@ func testConnWaitForWriteDetails(inc uint16) func(t testing.TB) {
 	return func(t testing.TB) {
 		defer goleak.VerifyNone(t)
 
-		c := NewConn(nil, nil, nil, nil)
+		c := NewConn(nil, nil)
 		c.wi = uint16(len(c.rq))
 
 		var wg sync.WaitGroup
