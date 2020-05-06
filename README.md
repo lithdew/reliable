@@ -98,13 +98,15 @@ I feel that this approach is best versus the popular alternatives like QUIC or S
 $ go get github.com/lithdew/reliable
 ```
 
-In the case you are looking to quickly get a project or demo up and running, use `Endpoint`. Should you require more flexibility, consider directly working with `Conn`. 
+Should you just be looking to quickly get a project or demo up and running, use `Endpoint`. If you require more flexibility, consider directly working with `Conn`.
+
+Note that some sort of keep-alive mechanism or heartbeat system needs to be bootstrapped on top, otherwise packets may indefinitely be resent as they will have failed to be acknowledged. 
 
 ## Options
 
 1. The read buffer size may be configured using `WithReadBufferSize`. The default read buffer size is 256.
 2. The write buffer size may be configured using `WithWriteBufferSize`. The default write buffer size is 256.
-3. The minimum period of time that once elapsed, requires the transmission of an ACK may be configured using `WithACKTimeout`. The default ACK timeout is 100 milliseconds.
+3. The minimum period of time before we retransmit an packet that has yet to be acknowledged may be configured using `WithResendTimeout`. The default resend timeout is 100 milliseconds.
 4. A packet handler which is to be called back when a packet is received may be configured using `WithPacketHandler`. By default, a nil handler is provided which ignores all incoming packets.
 5. An error handler which is called when errors occur on a connection that may be configured using `WithErrorHandler` By default, a nil handler is provided which ignores all errors.
 6. A byte buffer pool may be passed in using `WithBufferPool`. By default, a new byte buffer pool is instantiated.

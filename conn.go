@@ -13,8 +13,8 @@ type Conn struct {
 	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
 	readBufferSize  uint16 // read buffer size that must be a divisor of 65536
 
-	updatePeriod time.Duration // how often time-dependant parts of the protocol get checked
-	ackTimeout   time.Duration // how long we wait until unacked packets should be resent
+	updatePeriod  time.Duration // how often time-dependant parts of the protocol get checked
+	resendTimeout time.Duration // how long we wait until unacked packets should be resent
 
 	conn net.PacketConn
 	addr net.Addr
@@ -30,7 +30,7 @@ type Conn struct {
 	lui uint16    // last sent packet index that hasn't been sent via an ack yet
 	oui uint16    // oldest sent packet index that hasn't been acked yet
 	ouc sync.Cond // stop writes if the next write given oui may flood our peers read buffer
-	lsa time.Time // last time an ack was sent to our peer
+	ls  time.Time // last time data was sent to our peer
 
 	wi uint16 // write index
 	ri uint16 // read index
@@ -56,8 +56,8 @@ func NewConn(conn net.PacketConn, addr net.Addr, opts ...ConnOption) *Conn {
 		c.readBufferSize = DefaultReadBufferSize
 	}
 
-	if c.ackTimeout == 0 {
-		c.ackTimeout = DefaultACKTimeout
+	if c.resendTimeout == 0 {
+		c.resendTimeout = DefaultResendTimeout
 	}
 
 	if c.updatePeriod == 0 {
@@ -118,13 +118,18 @@ func (c *Conn) writePacket(reliable bool, buf []byte) error {
 	return nil
 }
 
+func (c *Conn) waitUntilReaderAvailable() {
+	for !c.die && seq.GT(c.wi+1, c.oui+uint16(len(c.rq))) {
+		c.ouc.Wait()
+	}
+}
+
 func (c *Conn) waitForNextWriteDetails() (idx uint16, ack uint16, ackBits uint32, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for !c.die && seq.GT(c.wi+1, c.oui+uint16(len(c.rq))) {
-		c.ouc.Wait()
-	}
+	c.waitUntilReaderAvailable()
+
 	idx, ok = c.nextWriteIndex(), !c.die
 	ack, ackBits = c.nextAckDetails()
 	return idx, ack, ackBits, ok
@@ -263,13 +268,15 @@ func (c *Conn) createAckIfNecessary() (header PacketHeader, needed bool) {
 
 	lui += ACKBitsetSize
 	c.lui = lui
-	c.lsa = time.Now()
+	c.ls = time.Now()
+
+	c.waitUntilReaderAvailable()
 
 	header.Sequence, header.ACK = c.nextWriteIndex(), lui-1
 	header.ACKBits = c.prepareAckBits(header.ACK)
 	header.Empty = true
 
-	needed = true
+	needed = !c.die
 
 	return header, needed
 }
@@ -368,7 +375,7 @@ func (c *Conn) trackAcked(ack uint16) {
 	}
 
 	c.lui = lui
-	c.lsa = time.Now()
+	c.ls = time.Now()
 }
 
 func (c *Conn) trackUnacked() {
@@ -430,10 +437,6 @@ func (c *Conn) Run() {
 			if err := c.retransmitUnackedPackets(); err != nil && c.eh != nil {
 				c.eh(c.addr, err)
 			}
-
-			if err := c.writeOverdueAck(); err != nil && c.eh != nil {
-				c.eh(c.addr, err)
-			}
 		}
 	}
 }
@@ -444,7 +447,7 @@ func (c *Conn) retransmitUnackedPackets() error {
 
 	for idx := uint16(0); idx < uint16(len(c.wq)); idx++ {
 		i := (c.oui + idx) % uint16(len(c.wq))
-		if c.wq[i] != uint32(c.oui+idx) || !c.wqe[i].shouldResend(time.Now(), c.ackTimeout) {
+		if c.wq[i] != uint32(c.oui+idx) || !c.wqe[i].shouldResend(time.Now(), c.resendTimeout) {
 			continue
 		}
 
@@ -459,49 +462,6 @@ func (c *Conn) retransmitUnackedPackets() error {
 
 		c.wqe[i].written = time.Now()
 		c.wqe[i].resent++
-	}
-
-	return nil
-}
-
-func (c *Conn) createOverdueAck() (header PacketHeader, needed bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	lui := c.lui
-
-	for i := uint16(0); i < ACKBitsetSize; i++ {
-		if c.rq[lui%uint16(len(c.rq))] != uint32(lui) {
-			break
-		}
-		lui++
-	}
-	now := time.Now()
-	if lui == c.lui || now.Sub(c.lsa) < c.ackTimeout {
-		return header, needed
-	}
-	c.lui = lui
-	c.lsa = now
-
-	header.Sequence, header.ACK = c.nextWriteIndex(), lui-1
-	header.ACKBits = c.prepareAckBits(header.ACK)
-	header.Empty = true
-
-	needed = true
-
-	return header, needed
-}
-
-func (c *Conn) writeOverdueAck() error {
-	header, needed := c.createOverdueAck()
-	if !needed {
-		return nil
-	}
-
-	//log.Printf("%s: overdue (seq=%05d) (ack=%05d) (ack_bits=%032b)", c.conn.LocalAddr(), header.Sequence, header.ACK, header.ACKBits)
-
-	if err := c.write(header, nil); err != nil {
-		return fmt.Errorf("failed to write overdue ack packet: %w", err)
 	}
 
 	return nil

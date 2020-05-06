@@ -6,8 +6,8 @@ const (
 	DefaultWriteBufferSize uint16 = 256
 	DefaultReadBufferSize  uint16 = 256
 
-	DefaultUpdatePeriod = 100 * time.Millisecond
-	DefaultACKTimeout   = 100 * time.Millisecond
+	DefaultUpdatePeriod  = 100 * time.Millisecond
+	DefaultResendTimeout = 100 * time.Millisecond
 )
 
 type ConnOption interface {
@@ -80,14 +80,14 @@ func WithUpdatePeriod(updatePeriod time.Duration) Option {
 	return withUpdatePeriod{updatePeriod: updatePeriod}
 }
 
-type withACKTimeout struct{ ackTimeout time.Duration }
+type withResendTimeout struct{ resendTimeout time.Duration }
 
-func (o withACKTimeout) applyConn(c *Conn)         { c.ackTimeout = o.ackTimeout }
-func (o withACKTimeout) applyEndpoint(e *Endpoint) { e.ackTimeout = o.ackTimeout }
+func (o withResendTimeout) applyConn(c *Conn)         { c.resendTimeout = o.resendTimeout }
+func (o withResendTimeout) applyEndpoint(e *Endpoint) { e.resendTimeout = o.resendTimeout }
 
-func WithACKTimeout(ackTimeout time.Duration) Option {
-	if ackTimeout == 0 {
+func WithResendTimeout(resendTimeout time.Duration) Option {
+	if resendTimeout == 0 {
 		panic("ack timeout of zero is not supported yet")
 	}
-	return withACKTimeout{ackTimeout: ackTimeout}
+	return withResendTimeout{resendTimeout: resendTimeout}
 }

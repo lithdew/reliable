@@ -22,8 +22,8 @@ type writtenPacket struct {
 	resent  byte      // total number of times this packet was resent
 }
 
-func (p writtenPacket) shouldResend(now time.Time, ackTimeout time.Duration) bool {
-	return !p.acked && p.resent < 10 && now.Sub(p.written) >= ackTimeout
+func (p writtenPacket) shouldResend(now time.Time, resendTimeout time.Duration) bool {
+	return !p.acked && p.resent < 10 && now.Sub(p.written) >= resendTimeout
 }
 
 type PacketHeaderFlag uint8

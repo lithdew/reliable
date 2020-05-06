@@ -16,8 +16,8 @@ type Endpoint struct {
 	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
 	readBufferSize  uint16 // read buffer size that must be a divisor of 65536
 
-	updatePeriod time.Duration // how often time-dependant parts of the protocol get checked
-	ackTimeout   time.Duration // how long we wait until unacked packets should be resent
+	updatePeriod  time.Duration // how often time-dependant parts of the protocol get checked
+	resendTimeout time.Duration // how long we wait until unacked packets should be resent
 
 	mu sync.Mutex
 	wg sync.WaitGroup
@@ -49,8 +49,8 @@ func NewEndpoint(conn net.PacketConn, opts ...EndpointOption) *Endpoint {
 		e.readBufferSize = DefaultReadBufferSize
 	}
 
-	if e.ackTimeout == 0 {
-		e.ackTimeout = DefaultACKTimeout
+	if e.resendTimeout == 0 {
+		e.resendTimeout = DefaultResendTimeout
 	}
 
 	if e.updatePeriod == 0 {
@@ -82,7 +82,7 @@ func (e *Endpoint) getConn(addr net.Addr) *Conn {
 			WithWriteBufferSize(e.writeBufferSize),
 			WithReadBufferSize(e.readBufferSize),
 			WithUpdatePeriod(e.updatePeriod),
-			WithACKTimeout(e.ackTimeout),
+			WithResendTimeout(e.resendTimeout),
 			WithBufferPool(e.pool),
 			WithPacketHandler(e.ph),
 			WithErrorHandler(e.eh),
