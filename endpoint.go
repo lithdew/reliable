@@ -165,7 +165,10 @@ func (e *Endpoint) Listen() {
 			break
 		}
 
-		err = conn.Read(buf[:n])
+		header, buf, err := UnmarshalPacketHeader(buf[:n])
+		if err == nil {
+			err = conn.Read(header, buf)
+		}
 		if err != nil {
 			e.clearConn(addr)
 		}

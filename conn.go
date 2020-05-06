@@ -220,12 +220,7 @@ func (c *Conn) transmit(buf []byte) error {
 	return err
 }
 
-func (c *Conn) Read(buf []byte) error {
-	header, buf, err := UnmarshalPacketHeader(buf)
-	if err != nil {
-		return fmt.Errorf("failed to decode packet header: %w", err)
-	}
-
+func (c *Conn) Read(header PacketHeader, buf []byte) error {
 	c.readAckBits(header.ack, header.ackBits)
 
 	if !header.unordered && !c.trackRead(header.seq) {
