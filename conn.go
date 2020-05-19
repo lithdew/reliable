@@ -3,7 +3,6 @@ package reliable
 import (
 	"io"
 	"net"
-	// "fmt"
 )
 
 type transmitFunc func(addr net.Addr, buf []byte) error
@@ -43,6 +42,6 @@ func (c *Conn) transmit(addr net.Addr, buf []byte) error {
 	if err == nil && n != len(buf) {
 		err = io.ErrShortWrite
 	}
-	// return fmt.Errorf("failed to transmit packet: %w", err)
+
 	return err
 }
