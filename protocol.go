@@ -289,9 +289,6 @@ func (p *Protocol) readAckBits(ack uint16, ackBits uint32) {
 }
 
 func (p *Protocol) trackRead(idx uint16) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	i := idx % uint16(len(p.rq))
 
 	if p.rq[i] == uint32(idx) { // duplicate packet
@@ -348,9 +345,6 @@ func (p *Protocol) trackAcked(ack uint16) {
 }
 
 func (p *Protocol) trackUnacked() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	oui := p.oui
 
 	for {
@@ -366,9 +360,6 @@ func (p *Protocol) trackUnacked() {
 }
 
 func (p *Protocol) close() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.die {
 		return false
 	}
@@ -411,9 +402,6 @@ func (p *Protocol) Run(transmit transmitFunc) {
 }
 
 func (p *Protocol) retransmitUnackedPackets(transmit transmitFunc) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	for idx := uint16(0); idx < uint16(len(p.wq)); idx++ {
 		i := (p.oui + idx) % uint16(len(p.wq))
 		if p.wq[i] != uint32(p.oui+idx) || !p.wqe[i].shouldResend(time.Now(), p.resendTimeout) {
@@ -428,8 +416,10 @@ func (p *Protocol) retransmitUnackedPackets(transmit transmitFunc) error {
 			break
 		}
 
+		p.mu.Lock()
 		p.wqe[i].written = time.Now()
 		p.wqe[i].resent++
+		p.mu.Unlock()
 	}
 
 	return nil

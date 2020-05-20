@@ -67,12 +67,12 @@ func (c *Conn) transmit(addr net.Addr, buf []byte) (EOF bool, err error) {
 		err = io.ErrShortWrite
 	}
 
-	if err != nil && !isEOF(err) {
+	EOF = isEOF(err)
+
+	if err != nil && !EOF {
 		err = fmt.Errorf("failed to transmit packet: %w", err)
 		return
 	}
-
-	EOF = true
 
 	return
 }
