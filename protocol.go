@@ -80,7 +80,7 @@ func NewProtocol(addr net.Addr, opts ...ProtocolOption) *Protocol {
 	return p
 }
 
-func (p *Protocol) writePacket(reliable bool, buf []byte, transmit transmitFunc) error {
+func (p *Protocol) writePacket(reliable bool, buf []byte) (net.Addr, []byte, error) {
 	var (
 		idx     uint16
 		ack     uint16
@@ -95,18 +95,14 @@ func (p *Protocol) writePacket(reliable bool, buf []byte, transmit transmitFunc)
 	}
 
 	if !ok {
-		return io.EOF
+		return p.addr, nil, io.EOF
 	}
 
 	p.trackAcked(ack)
 
-	if err := p.write(PacketHeader{Sequence: idx, ACK: ack, ACKBits: ackBits, Unordered: !reliable}, buf, transmit); err != nil {
-		return err
-	}
-
 	//log.Printf("%s: send    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", p.conn.LocalAddr(), idx, ack, ackBits, len(buf), reliable)
 
-	return nil
+	return p.addr, p.write(PacketHeader{Sequence: idx, ACK: ack, ACKBits: ackBits, Unordered: !reliable}, buf), nil
 }
 
 func (p *Protocol) waitUntilReaderAvailable() {
@@ -148,7 +144,7 @@ func (p *Protocol) prepareAckBits(ack uint16) (ackBits uint32) {
 	return ackBits
 }
 
-func (p *Protocol) write(header PacketHeader, buf []byte, transmit transmitFunc) error {
+func (p *Protocol) write(header PacketHeader, buf []byte) []byte {
 	b := p.pool.Get()
 
 	b.B = header.AppendTo(b.B)
@@ -162,11 +158,7 @@ func (p *Protocol) write(header PacketHeader, buf []byte, transmit transmitFunc)
 		p.trackWrite(header.Sequence, b)
 	}
 
-	if err := transmit(p.addr, b.B); err != nil && !isEOF(err) {
-		return fmt.Errorf("failed to transmit packet: %w", err)
-	}
-
-	return nil
+	return b.B
 }
 
 func (p *Protocol) trackWrite(idx uint16, buf *Buffer) {
@@ -211,21 +203,17 @@ func (p *Protocol) clearWrites(start, end uint16) {
 	emptyBufferIndices(second)
 }
 
-func (p *Protocol) Read(header PacketHeader, buf []byte, transmit transmitFunc) error {
+func (p *Protocol) Read(header PacketHeader, buf []byte) (net.Addr, []byte, error) {
 	p.readAckBits(header.ACK, header.ACKBits)
 
 	if !header.Unordered && !p.trackRead(header.Sequence) {
-		return nil
+		return p.addr, nil, nil
 	}
 
 	p.trackUnacked()
 
-	if err := p.writeAcksIfNecessary(transmit); err != nil {
-		return fmt.Errorf("failed to write acks when necessary: %w", err)
-	}
-
 	if header.Empty {
-		return nil
+		return p.addr, nil, nil
 	}
 
 	if p.ph != nil {
@@ -234,7 +222,7 @@ func (p *Protocol) Read(header PacketHeader, buf []byte, transmit transmitFunc) 
 
 	//log.Printf("%s: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", p.conn.LocalAddr(), header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
 
-	return nil
+	return p.addr, p.writeAcksIfNecessary(), nil
 }
 
 func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
@@ -264,7 +252,7 @@ func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
 	return header, needed
 }
 
-func (p *Protocol) writeAcksIfNecessary(transmit transmitFunc) error {
+func (p *Protocol) writeAcksIfNecessary() []byte {
 	for {
 		header, needed := p.createAckIfNecessary()
 		if !needed {
@@ -273,9 +261,7 @@ func (p *Protocol) writeAcksIfNecessary(transmit transmitFunc) error {
 
 		//log.Printf("%s: ack     (seq=%05d) (ack=%05d) (ack_bits=%032b)", p.conn.LocalAddr(), header.Sequence, header.ACK, header.ACKBits)
 
-		if err := p.write(header, nil, transmit); err != nil {
-			return fmt.Errorf("failed to write ack packet: %w", err)
-		}
+		return p.write(header, nil)
 	}
 }
 
@@ -436,11 +422,10 @@ func (p *Protocol) retransmitUnackedPackets(transmit transmitFunc) error {
 
 		//log.Printf("%s: resend  (seq=%d)", p.conn.LocalAddr(), p.oui+idx)
 
-		if err := transmit(p.addr, p.wqe[i].buf.B); err != nil {
-			if isEOF(err) {
-				break
-			}
+		if isEOF, err := transmit(p.addr, p.wqe[i].buf.B); err != nil {
 			return fmt.Errorf("failed to retransmit unacked packet: %w", err)
+		} else if isEOF {
+			break
 		}
 
 		p.wqe[i].written = time.Now()
