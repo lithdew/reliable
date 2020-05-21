@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	// "github.com/davecgh/go-spew/spew"
 )
 
 func newPacketConn(t testing.TB, addr string) net.PacketConn {
@@ -184,10 +185,8 @@ func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
 func TestRaceConditions(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	var wg sync.WaitGroup
-
 	actual := uint64(0)
-	expected := uint64(512)
+	expected := uint64(100)
 
 	handler := func(_ net.Addr, seq uint16, buf []byte) {
 		atomic.AddUint64(&actual, 1)
@@ -196,50 +195,116 @@ func TestRaceConditions(t *testing.T) {
 	ca := newPacketConn(t, "127.0.0.1:0")
 	cb := newPacketConn(t, "127.0.0.1:0")
 	cc := newPacketConn(t, "127.0.0.1:0")
+	cd := newPacketConn(t, "127.0.0.1:0")
+	ce := newPacketConn(t, "127.0.0.1:0")
 
 	a := NewEndpoint(ca, WithPacketHandler(handler))
 	b := NewEndpoint(cb, WithPacketHandler(handler))
 	c := NewEndpoint(cc, WithPacketHandler(handler))
+	d := NewEndpoint(cd, WithPacketHandler(handler))
+	e := NewEndpoint(ce, WithPacketHandler(handler))
 
 	go a.Listen()
 	go b.Listen()
 	go c.Listen()
+	go d.Listen()
+	go e.Listen()
+
+	tr := newTestRaceConditions(4)
 
 	defer func() {
-		wg.Wait()
+		tr.wait()
 
 		require.NoError(t, ca.SetDeadline(time.Now().Add(1*time.Millisecond)))
 		require.NoError(t, cb.SetDeadline(time.Now().Add(1*time.Millisecond)))
 		require.NoError(t, cc.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(t, cd.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(t, ce.SetDeadline(time.Now().Add(1*time.Millisecond)))
 
 		require.NoError(t, a.Close())
 		require.NoError(t, b.Close())
 		require.NoError(t, c.Close())
+		require.NoError(t, d.Close())
+		require.NoError(t, e.Close())
 
 		require.NoError(t, ca.Close())
 		require.NoError(t, cb.Close())
 		require.NoError(t, cc.Close())
+		require.NoError(t, cd.Close())
+		require.NoError(t, ce.Close())
 
-		require.EqualValues(t, expected*2, atomic.LoadUint64(&actual))
+		require.EqualValues(t, expected*4, atomic.LoadUint64(&actual))
 	}()
 
-	wg.Add(1)
+	tr.wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer tr.done()
 		for i := uint64(0); i < expected; i++ {
 			data := strconv.AppendUint(nil, i, 10)
 
-			require.NoError(t, a.WriteReliablePacket(data, b.Addr()))
+			err := a.WriteReliablePacket(data, b.Addr())
+			if err != nil {
+				require.True(t, isEOF(err))
+			}
 		}
 	}()
 
-	wg.Add(1)
+	tr.wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer tr.done()
 		for i := uint64(0); i < expected; i++ {
 			data := strconv.AppendUint(nil, i, 10)
 
-			require.NoError(t, a.WriteReliablePacket(data, c.Addr()))
+			err := a.WriteReliablePacket(data, c.Addr())
+			if err != nil {
+				require.True(t, isEOF(err))
+			}
 		}
 	}()
+
+	tr.wg.Add(1)
+	go func() {
+		defer tr.done()
+		for i := uint64(0); i < expected; i++ {
+			data := strconv.AppendUint(nil, i, 10)
+
+			err := a.WriteReliablePacket(data, d.Addr())
+			if err != nil {
+				require.True(t, isEOF(err))
+			}
+		}
+	}()
+
+	tr.wg.Add(1)
+	go func() {
+		defer tr.done()
+		for i := uint64(0); i < expected; i++ {
+			data := strconv.AppendUint(nil, i, 10)
+
+			err := a.WriteReliablePacket(data, e.Addr())
+			if err != nil {
+				require.True(t, isEOF(err))
+			}
+		}
+	}()
+}
+
+// Note: This struct is test for TestRaceConditions
+type testRaceConditions struct {
+	mu sync.Mutex
+	wg sync.WaitGroup
+}
+
+func newTestRaceConditions(cap int) *testRaceConditions {
+	return &testRaceConditions{}
+}
+
+func (t *testRaceConditions) done() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.wg.Done()
+}
+
+func (t *testRaceConditions) wait() {
+	t.wg.Wait()
 }
