@@ -178,3 +178,68 @@ func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
 		require.NoError(t, b.WriteReliablePacket(data, a.Addr()))
 	}
 }
+
+// Check whether race condition happen
+// Simulate write and read heavy condition by sending packet concurrently
+func TestRaceConditions(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	var wg sync.WaitGroup
+
+	actual := uint64(0)
+	expected := uint64(512)
+
+	handler := func(_ net.Addr, seq uint16, buf []byte) {
+		atomic.AddUint64(&actual, 1)
+	}
+
+	ca := newPacketConn(t, "127.0.0.1:0")
+	cb := newPacketConn(t, "127.0.0.1:0")
+	cc := newPacketConn(t, "127.0.0.1:0")
+
+	a := NewEndpoint(ca, WithPacketHandler(handler))
+	b := NewEndpoint(cb, WithPacketHandler(handler))
+	c := NewEndpoint(cc, WithPacketHandler(handler))
+
+	go a.Listen()
+	go b.Listen()
+	go c.Listen()
+
+	defer func() {
+		wg.Wait()
+
+		require.NoError(t, ca.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(t, cb.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(t, cc.SetDeadline(time.Now().Add(1*time.Millisecond)))
+
+		require.NoError(t, a.Close())
+		require.NoError(t, b.Close())
+		require.NoError(t, c.Close())
+
+		require.NoError(t, ca.Close())
+		require.NoError(t, cb.Close())
+		require.NoError(t, cc.Close())
+
+		require.EqualValues(t, expected*2, atomic.LoadUint64(&actual))
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := uint64(0); i < expected; i++ {
+			data := strconv.AppendUint(nil, i, 10)
+
+			require.NoError(t, a.WriteReliablePacket(data, b.Addr()))
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := uint64(0); i < expected; i++ {
+			data := strconv.AppendUint(nil, i, 10)
+
+			require.NoError(t, a.WriteReliablePacket(data, c.Addr()))
+		}
+	}()
+}

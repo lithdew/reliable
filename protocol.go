@@ -360,6 +360,9 @@ func (p *Protocol) trackUnacked() {
 }
 
 func (p *Protocol) close() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if p.die {
 		return false
 	}
@@ -402,6 +405,9 @@ func (p *Protocol) Run(transmit transmitFunc) {
 }
 
 func (p *Protocol) retransmitUnackedPackets(transmit transmitFunc) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	for idx := uint16(0); idx < uint16(len(p.wq)); idx++ {
 		i := (p.oui + idx) % uint16(len(p.wq))
 		if p.wq[i] != uint32(p.oui+idx) || !p.wqe[i].shouldResend(time.Now(), p.resendTimeout) {
@@ -416,10 +422,8 @@ func (p *Protocol) retransmitUnackedPackets(transmit transmitFunc) error {
 			break
 		}
 
-		p.mu.Lock()
 		p.wqe[i].written = time.Now()
 		p.wqe[i].resent++
-		p.mu.Unlock()
 	}
 
 	return nil
