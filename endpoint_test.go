@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	// "github.com/davecgh/go-spew/spew"
 )
 
 func newPacketConn(t testing.TB, addr string) net.PacketConn {
@@ -186,7 +185,7 @@ func TestRaceConditions(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
 	actual := uint64(0)
-	expected := uint64(100)
+	expected := uint64(1000)
 
 	handler := func(_ net.Addr, seq uint16, buf []byte) {
 		atomic.AddUint64(&actual, 1)
