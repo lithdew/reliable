@@ -289,6 +289,7 @@ func TestRaceConditions(t *testing.T) {
 }
 
 // Note: This struct is test for TestRaceConditions
+// The purpose for this struct is to prevent race condition of WaitGroup
 type testRaceConditions struct {
 	mu sync.Mutex
 	wg sync.WaitGroup

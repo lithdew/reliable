@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/davecgh/go-spew v1.1.1
+	github.com/dvyukov/go-fuzz v0.0.0-20200318091601-be3528f3a813 // indirect
 	github.com/lithdew/bytesutil v0.0.0-20200409052507-d98389230a59
 	github.com/lithdew/seq v0.0.0-20200504083424-74d5d8117a05
 	github.com/stretchr/testify v1.5.1
