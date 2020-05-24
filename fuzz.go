@@ -23,7 +23,7 @@ func Fuzz(data []byte) int {
 	go ea.Listen()
 	go eb.Listen()
 
-	for i := 0; i < 32; i++ {
+	for i := 0; i < 65536; i++ {
 		if err := ea.WriteReliablePacket(data, eb.Addr()); err != nil && !isEOF(err) {
 			return 0
 		}
