@@ -1,3 +1,5 @@
+// +build gofuzz
+
 package reliable
 
 import (
