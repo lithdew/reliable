@@ -3,6 +3,8 @@
 package reliable
 
 import (
+	"bytes"
+	"errors"
 	"net"
 	"time"
 )
@@ -17,15 +19,29 @@ func Fuzz(data []byte) int {
 		return -1
 	}
 
-	ea := NewEndpoint(ca)
-	eb := NewEndpoint(cb)
+	chErr := make(chan error)
+
+	handler := func(_ net.Addr, _ uint16, buf []byte) {
+		if bytes.Equal(buf, data) {
+			return
+		}
+		chErr <- errors.New("data miss match")
+	}
+
+	ea := NewEndpoint(ca, reliable.WithPacketHandler(handler))
+	eb := NewEndpoint(cb, reliable.WithPacketHandler(handler))
 
 	go ea.Listen()
 	go eb.Listen()
 
 	for i := 0; i < 65536; i++ {
-		if err := ea.WriteReliablePacket(data, eb.Addr()); err != nil && !isEOF(err) {
+		select {
+		case <-chErr:
 			return 0
+		default:
+			if err := ea.WriteReliablePacket(data, eb.Addr()); err != nil && !isEOF(err) {
+				return 0
+			}
 		}
 	}
 
