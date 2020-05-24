@@ -5,20 +5,6 @@ import (
 	"time"
 )
 
-func closeConn(c net.PacketConn, e *Endpoint, ch chan error) {
-	c.SetDeadline(time.Now().Add(1 * time.Millisecond))
-
-	if err := e.Close(); err != nil {
-		ch <- err
-	}
-
-	if err := c.Close(); err != nil {
-		ch <- err
-	}
-
-	ch <- nil
-}
-
 func Fuzz(data []byte) int {
 	ca, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -41,15 +27,26 @@ func Fuzz(data []byte) int {
 		}
 	}
 
-	chErr := make(chan error, 2)
+	if err := ca.SetDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {
+		return 0
+	}
 
-	go closeConn(ca, ea, chErr)
-	go closeConn(cb, eb, chErr)
+	if err := cb.SetDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {
+		return 0
+	}
 
-	for i := 0; i < cap(chErr); i++ {
-		if err := <-chErr; err != nil {
-			return 0
-		}
+	if err := ea.Close(); err != nil {
+		return 0
+	}
+	if err := eb.Close(); err != nil {
+		return 0
+	}
+
+	if err := ca.Close(); err != nil {
+		return 0
+	}
+	if err := cb.Close(); err != nil {
+		return 0
 	}
 
 	return 1
