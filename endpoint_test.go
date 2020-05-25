@@ -214,6 +214,9 @@ func TestRaceConditions(t *testing.T) {
 	defer func() {
 		tr.wait()
 
+		// Note: Guarantee that all messages are deliverd
+		time.Sleep(100 * time.Millisecond)
+
 		require.NoError(t, ca.SetDeadline(time.Now().Add(1*time.Millisecond)))
 		require.NoError(t, cb.SetDeadline(time.Now().Add(1*time.Millisecond)))
 		require.NoError(t, cc.SetDeadline(time.Now().Add(1*time.Millisecond)))
