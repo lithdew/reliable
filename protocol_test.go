@@ -11,7 +11,7 @@ func testConnWaitForWriteDetails(inc uint16) func(t testing.TB) {
 	return func(t testing.TB) {
 		defer goleak.VerifyNone(t)
 
-		p := NewProtocol(nil)
+		p := NewProtocol()
 		p.wi = uint16(len(p.rq))
 
 		var wg sync.WaitGroup

@@ -16,7 +16,6 @@ type Protocol struct {
 	updatePeriod  time.Duration // how often time-dependant parts of the protocol get checked
 	resendTimeout time.Duration // how long we wait until unacked packets should be resent
 
-	addr net.Addr
 	pool *Pool
 
 	ph PacketHandler
@@ -40,8 +39,8 @@ type Protocol struct {
 	wqe []writtenPacket // write queue entries
 }
 
-func NewProtocol(addr net.Addr, opts ...ProtocolOption) *Protocol {
-	p := &Protocol{addr: addr, exit: make(chan struct{})}
+func NewProtocol(opts ...ProtocolOption) *Protocol {
+	p := &Protocol{exit: make(chan struct{})}
 
 	for _, opt := range opts {
 		opt.applyProtocol(p)
@@ -80,7 +79,7 @@ func NewProtocol(addr net.Addr, opts ...ProtocolOption) *Protocol {
 	return p
 }
 
-func (p *Protocol) writePacket(reliable bool, buf []byte) (net.Addr, []byte, error) {
+func (p *Protocol) writePacket(reliable bool, buf []byte) ([]byte, error) {
 	var (
 		idx     uint16
 		ack     uint16
@@ -95,14 +94,14 @@ func (p *Protocol) writePacket(reliable bool, buf []byte) (net.Addr, []byte, err
 	}
 
 	if !ok {
-		return p.addr, nil, io.EOF
+		return nil, io.EOF
 	}
 
 	p.trackAcked(ack)
 
-	// log.Printf("%s: send    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", p.addr, idx, ack, ackBits, len(buf), reliable)
+	// log.Printf("%v: send    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", &p, idx, ack, ackBits, len(buf), reliable)
 
-	return p.addr, p.write(PacketHeader{Sequence: idx, ACK: ack, ACKBits: ackBits, Unordered: !reliable}, buf), nil
+	return p.write(PacketHeader{Sequence: idx, ACK: ack, ACKBits: ackBits, Unordered: !reliable}, buf), nil
 }
 
 func (p *Protocol) waitUntilReaderAvailable() {
@@ -203,26 +202,26 @@ func (p *Protocol) clearWrites(start, end uint16) {
 	emptyBufferIndices(second)
 }
 
-func (p *Protocol) Read(header PacketHeader, buf []byte) (net.Addr, []byte, error) {
+func (p *Protocol) Read(addr net.Addr, header PacketHeader, buf []byte) ([]byte, error) {
 	p.readAckBits(header.ACK, header.ACKBits)
 
 	if !header.Unordered && !p.trackRead(header.Sequence) {
-		return p.addr, nil, nil
+		return nil, nil
 	}
 
 	p.trackUnacked()
 
 	if header.Empty {
-		return p.addr, nil, nil
+		return nil, nil
 	}
 
 	if p.ph != nil {
-		p.ph(p.addr, header.Sequence, buf)
+		p.ph(addr, header.Sequence, buf)
 	}
 
-	// log.Printf("%s: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", p.addr, header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
+	// log.Printf("%v: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", &p, header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
 
-	return p.addr, p.writeAcksIfNecessary(), nil
+	return p.writeAcksIfNecessary(), nil
 }
 
 func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
@@ -259,7 +258,7 @@ func (p *Protocol) writeAcksIfNecessary() []byte {
 			return nil
 		}
 
-		// log.Printf("%s: ack     (seq=%05d) (ack=%05d) (ack_bits=%032b)", p.addr, header.Sequence, header.ACK, header.ACKBits)
+		// log.Printf("%v: ack     (seq=%05d) (ack=%05d) (ack_bits=%032b)", &p, header.Sequence, header.ACK, header.ACKBits)
 
 		return p.write(header, nil)
 	}
@@ -379,7 +378,7 @@ func (p *Protocol) Close() {
 	}
 }
 
-func (p *Protocol) Run(transmit transmitFunc) {
+func (p *Protocol) Run(addr net.Addr, transmit transmitFunc) {
 	ticker := time.NewTicker(p.updatePeriod)
 	defer ticker.Stop()
 
@@ -389,7 +388,7 @@ func (p *Protocol) Run(transmit transmitFunc) {
 			return
 		case <-ticker.C:
 			if err := p.retransmitUnackedPackets(transmit); err != nil && p.eh != nil {
-				p.eh(p.addr, err)
+				p.eh(addr, err)
 			}
 		}
 	}
@@ -405,9 +404,9 @@ func (p *Protocol) retransmitUnackedPackets(transmit transmitFunc) error {
 			continue
 		}
 
-		// log.Printf("%s: resend  (seq=%d)", p.addr, p.oui+idx)
+		// log.Printf("%v: resend  (seq=%d)", &p, p.oui+idx)
 
-		if isEOF, err := transmit(p.addr, p.wqe[i].buf.B); err != nil {
+		if isEOF, err := transmit(p.wqe[i].buf.B); err != nil {
 			return fmt.Errorf("failed to retransmit unacked packet: %w", err)
 		} else if isEOF {
 			break

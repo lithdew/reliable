@@ -77,8 +77,8 @@ func (e *Endpoint) getConn(addr net.Addr) *Conn {
 		}
 
 		conn = NewConn(
-			e.conn,
 			addr,
+			e.conn,
 			WithWriteBufferSize(e.writeBufferSize),
 			WithReadBufferSize(e.readBufferSize),
 			WithUpdatePeriod(e.updatePeriod),

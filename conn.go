@@ -6,46 +6,47 @@ import (
 	"net"
 )
 
-type transmitFunc func(addr net.Addr, buf []byte) (bool, error)
+type transmitFunc func(buf []byte) (bool, error)
 
 type Conn struct {
+	addr     net.Addr
 	conn     net.PacketConn
 	protocol *Protocol
 }
 
-func NewConn(conn net.PacketConn, addr net.Addr, opts ...ProtocolOption) *Conn {
-	p := NewProtocol(addr, opts...)
-	return &Conn{conn: conn, protocol: p}
+func NewConn(addr net.Addr, conn net.PacketConn, opts ...ProtocolOption) *Conn {
+	p := NewProtocol(opts...)
+	return &Conn{addr: addr, conn: conn, protocol: p}
 }
 
 func (c *Conn) WriteReliablePacket(buf []byte) error {
-	addr, buf, err := c.protocol.writePacket(true, buf)
+	buf, err := c.protocol.writePacket(true, buf)
 	if err != nil {
 		return err
 	}
 
-	_, err = c.transmit(addr, buf)
+	_, err = c.transmit(buf)
 	return err
 }
 
 func (c *Conn) WriteUnreliablePacket(buf []byte) error {
-	addr, buf, err := c.protocol.writePacket(false, buf)
+	buf, err := c.protocol.writePacket(false, buf)
 	if err != nil {
 		return err
 	}
 
-	_, err = c.transmit(addr, buf)
+	_, err = c.transmit(buf)
 	return err
 }
 
 func (c *Conn) Read(header PacketHeader, buf []byte) error {
-	addr, buf, err := c.protocol.Read(header, buf)
+	buf, err := c.protocol.Read(c.addr, header, buf)
 	if err != nil {
 		return err
 	}
 
 	if len(buf) != 0 {
-		_, err = c.transmit(addr, buf)
+		_, err = c.transmit(buf)
 		return err
 	}
 
@@ -57,11 +58,11 @@ func (c *Conn) Close() {
 }
 
 func (c *Conn) Run() {
-	c.protocol.Run(c.transmit)
+	c.protocol.Run(c.addr, c.transmit)
 }
 
-func (c *Conn) transmit(addr net.Addr, buf []byte) (EOF bool, err error) {
-	n, err := c.conn.WriteTo(buf, addr)
+func (c *Conn) transmit(buf []byte) (EOF bool, err error) {
+	n, err := c.conn.WriteTo(buf, c.addr)
 
 	if err == nil && n != len(buf) {
 		err = io.ErrShortWrite
