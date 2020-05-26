@@ -20,7 +20,7 @@ func NewConn(addr net.Addr, conn net.PacketConn, opts ...ProtocolOption) *Conn {
 }
 
 func (c *Conn) WriteReliablePacket(buf []byte) error {
-	buf, err := c.protocol.writePacket(true, buf)
+	buf, err := c.protocol.WritePacket(true, buf)
 	if err != nil {
 		return err
 	}
@@ -30,7 +30,7 @@ func (c *Conn) WriteReliablePacket(buf []byte) error {
 }
 
 func (c *Conn) WriteUnreliablePacket(buf []byte) error {
-	buf, err := c.protocol.writePacket(false, buf)
+	buf, err := c.protocol.WritePacket(false, buf)
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func (c *Conn) WriteUnreliablePacket(buf []byte) error {
 }
 
 func (c *Conn) Read(header PacketHeader, buf []byte) error {
-	buf = c.protocol.Read(header, buf)
+	buf = c.protocol.ReadPacket(header, buf)
 
 	if len(buf) != 0 {
 		_, err := c.transmit(buf)

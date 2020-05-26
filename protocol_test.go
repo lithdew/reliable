@@ -23,7 +23,9 @@ func testConnWaitForWriteDetails(inc uint16) func(t testing.TB) {
 			go func() {
 				defer wg.Done()
 
+				p.ouc.L.Lock()
 				idx, _, _, _ := p.waitForNextWriteDetails()
+				p.ouc.L.Unlock()
 				ch <- idx
 			}()
 		}

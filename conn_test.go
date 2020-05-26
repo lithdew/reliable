@@ -34,9 +34,6 @@ func TestConnWriteReliablePacket(t *testing.T) {
 	go readLoop(t, b, cb)
 
 	defer func() {
-		// Note: Guarantee that all messages are deliverd
-		time.Sleep(100 * time.Millisecond)
-
 		require.NoError(t, a.SetDeadline(time.Now().Add(1*time.Millisecond)))
 		require.NoError(t, b.SetDeadline(time.Now().Add(1*time.Millisecond)))
 

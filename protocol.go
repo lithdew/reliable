@@ -81,7 +81,10 @@ func NewProtocol(opts ...ProtocolOption) *Protocol {
 	return p
 }
 
-func (p *Protocol) writePacket(reliable bool, buf []byte) ([]byte, error) {
+func (p *Protocol) WritePacket(reliable bool, buf []byte) ([]byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	var (
 		idx     uint16
 		ack     uint16
@@ -113,9 +116,6 @@ func (p *Protocol) waitUntilReaderAvailable() {
 }
 
 func (p *Protocol) waitForNextWriteDetails() (idx uint16, ack uint16, ackBits uint32, ok bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	p.waitUntilReaderAvailable()
 
 	idx, ok = p.nextWriteIndex(), !p.die
@@ -163,9 +163,6 @@ func (p *Protocol) write(header PacketHeader, buf []byte) []byte {
 }
 
 func (p *Protocol) trackWrite(idx uint16, buf *Buffer) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if seq.GT(idx+1, p.wi) {
 		p.clearWrites(p.wi, idx)
 		p.wi = idx + 1
@@ -204,7 +201,10 @@ func (p *Protocol) clearWrites(start, end uint16) {
 	emptyBufferIndices(second)
 }
 
-func (p *Protocol) Read(header PacketHeader, buf []byte) []byte {
+func (p *Protocol) ReadPacket(header PacketHeader, buf []byte) []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.readAckBits(header.ACK, header.ACKBits)
 
 	if !header.Unordered && !p.trackRead(header.Sequence) {
@@ -227,9 +227,6 @@ func (p *Protocol) Read(header PacketHeader, buf []byte) []byte {
 }
 
 func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	lui := p.lui
 
 	for i := uint16(0); i < ACKBitsetSize; i++ {
@@ -267,9 +264,6 @@ func (p *Protocol) writeAcksIfNecessary() []byte {
 }
 
 func (p *Protocol) readAckBits(ack uint16, ackBits uint32) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	for idx := uint16(0); idx < ACKBitsetSize; idx, ackBits = idx+1, ackBits>>1 {
 		if ackBits&1 == 0 {
 			continue
@@ -329,9 +323,6 @@ func (p *Protocol) clearReads(start, end uint16) {
 }
 
 func (p *Protocol) trackAcked(ack uint16) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	lui := p.lui
 
 	for lui <= ack {
@@ -361,9 +352,6 @@ func (p *Protocol) trackUnacked() {
 }
 
 func (p *Protocol) close() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.die {
 		return false
 	}
@@ -375,6 +363,9 @@ func (p *Protocol) close() bool {
 }
 
 func (p *Protocol) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if !p.close() {
 		return
 	}
