@@ -1,1 +1,5 @@
 .idea/
+corpus/
+crashers/
+suppressions/
+reliable-fuzz.zip

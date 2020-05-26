@@ -32,8 +32,8 @@ func listen(addr string) net.PacketConn {
 	return conn
 }
 
-func handler(_ net.Addr, _ uint16, buf []byte) {
-	if bytes.Equal(buf, PacketData) {
+func handler(buf []byte, _ net.Addr) {
+	if bytes.Equal(buf, PacketData) || len(buf) == 0 {
 		return
 	}
 	spew.Dump(buf)
@@ -49,8 +49,8 @@ func main() {
 	ca := listen("127.0.0.1:44444")
 	cb := listen("127.0.0.1:55555")
 
-	a := reliable.NewEndpoint(ca, reliable.WithPacketHandler(handler))
-	b := reliable.NewEndpoint(cb, reliable.WithPacketHandler(handler))
+	a := reliable.NewEndpoint(ca, reliable.WithEndpointPacketHandler(handler))
+	b := reliable.NewEndpoint(cb, reliable.WithEndpointPacketHandler(handler))
 
 	defer func() {
 		check(ca.SetDeadline(time.Now().Add(1 * time.Millisecond)))

@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-type PacketHandler func(addr net.Addr, seq uint16, buf []byte)
-type ErrorHandler func(addr net.Addr, err error)
+type EndpointPacketHandler func(buf []byte, addr net.Addr)
+type EndpointErrorHandler func(err error, addr net.Addr)
 
 type Endpoint struct {
 	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
@@ -24,8 +24,8 @@ type Endpoint struct {
 
 	pool *Pool
 
-	ph PacketHandler
-	eh ErrorHandler
+	ph EndpointPacketHandler
+	eh EndpointErrorHandler
 
 	addr  net.Addr
 	conn  net.PacketConn
@@ -77,15 +77,13 @@ func (e *Endpoint) getConn(addr net.Addr) *Conn {
 		}
 
 		conn = NewConn(
-			e.conn,
 			addr,
+			e.conn,
 			WithWriteBufferSize(e.writeBufferSize),
 			WithReadBufferSize(e.readBufferSize),
 			WithUpdatePeriod(e.updatePeriod),
 			WithResendTimeout(e.resendTimeout),
 			WithBufferPool(e.pool),
-			WithPacketHandler(e.ph),
-			WithErrorHandler(e.eh),
 		)
 
 		e.wg.Add(1)
@@ -171,11 +169,29 @@ func (e *Endpoint) Listen() {
 		}
 
 		header, buf, err := UnmarshalPacketHeader(buf[:n])
-		if err == nil {
-			err = conn.Read(header, buf)
-		}
 		if err != nil {
 			e.clearConn(addr)
+
+			if e.eh != nil {
+				e.eh(err, e.addr)
+			}
+
+			continue
+		}
+
+		err = conn.Read(header, buf)
+		if err != nil {
+			e.clearConn(addr)
+
+			if e.eh != nil {
+				e.eh(err, e.addr)
+			}
+
+			continue
+		}
+
+		if e.ph != nil {
+			e.ph(buf, e.addr)
 		}
 	}
 

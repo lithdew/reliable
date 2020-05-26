@@ -10,8 +10,8 @@ const (
 	DefaultResendTimeout = 100 * time.Millisecond
 )
 
-type ConnOption interface {
-	applyConn(c *Conn)
+type ProtocolOption interface {
+	applyProtocol(p *Protocol)
 }
 
 type EndpointOption interface {
@@ -19,20 +19,20 @@ type EndpointOption interface {
 }
 
 type Option interface {
-	ConnOption
+	ProtocolOption
 	EndpointOption
 }
 
 type withBufferPool struct{ pool *Pool }
 
-func (o withBufferPool) applyConn(c *Conn)         { c.pool = o.pool }
+func (o withBufferPool) applyProtocol(p *Protocol) { p.pool = o.pool }
 func (o withBufferPool) applyEndpoint(e *Endpoint) { e.pool = o.pool }
 
 func WithBufferPool(pool *Pool) Option { return withBufferPool{pool: pool} }
 
 type withWriteBufferSize struct{ writeBufferSize uint16 }
 
-func (o withWriteBufferSize) applyConn(c *Conn)         { c.writeBufferSize = o.writeBufferSize }
+func (o withWriteBufferSize) applyProtocol(p *Protocol) { p.writeBufferSize = o.writeBufferSize }
 func (o withWriteBufferSize) applyEndpoint(e *Endpoint) { e.writeBufferSize = o.writeBufferSize }
 
 func WithWriteBufferSize(writeBufferSize uint16) Option {
@@ -44,7 +44,7 @@ func WithWriteBufferSize(writeBufferSize uint16) Option {
 
 type withReadBufferSize struct{ readBufferSize uint16 }
 
-func (o withReadBufferSize) applyConn(c *Conn)         { c.readBufferSize = o.readBufferSize }
+func (o withReadBufferSize) applyProtocol(p *Protocol) { p.readBufferSize = o.readBufferSize }
 func (o withReadBufferSize) applyEndpoint(e *Endpoint) { e.readBufferSize = o.readBufferSize }
 
 func WithReadBufferSize(readBufferSize uint16) Option {
@@ -54,23 +54,35 @@ func WithReadBufferSize(readBufferSize uint16) Option {
 	return withReadBufferSize{readBufferSize: readBufferSize}
 }
 
-type withPacketHandler struct{ ph PacketHandler }
+type withProtocolPacketHandler struct{ ph ProtocolPacketHandler }
+type withEndpointPacketHandler struct{ ph EndpointPacketHandler }
 
-func (o withPacketHandler) applyConn(c *Conn)         { c.ph = o.ph }
-func (o withPacketHandler) applyEndpoint(e *Endpoint) { e.ph = o.ph }
+func (o withProtocolPacketHandler) applyProtocol(p *Protocol) { p.ph = o.ph }
+func (o withEndpointPacketHandler) applyEndpoint(e *Endpoint) { e.ph = o.ph }
 
-func WithPacketHandler(ph PacketHandler) Option { return withPacketHandler{ph: ph} }
+func WithProtocolPacketHandler(ph ProtocolPacketHandler) ProtocolOption {
+	return withProtocolPacketHandler{ph: ph}
+}
+func WithEndpointPacketHandler(ph EndpointPacketHandler) EndpointOption {
+	return withEndpointPacketHandler{ph: ph}
+}
 
-type withErrorHandler struct{ eh ErrorHandler }
+type withProtocolErrorHandler struct{ eh ProtocolErrorHandler }
+type withEndpointErrorHandler struct{ eh EndpointErrorHandler }
 
-func (o withErrorHandler) applyConn(c *Conn)         { c.eh = o.eh }
-func (o withErrorHandler) applyEndpoint(e *Endpoint) { e.eh = o.eh }
+func (o withProtocolErrorHandler) applyProtocol(p *Protocol) { p.eh = o.eh }
+func (o withEndpointErrorHandler) applyEndpoint(e *Endpoint) { e.eh = o.eh }
 
-func WithErrorHandler(eh ErrorHandler) Option { return withErrorHandler{eh: eh} }
+func WithProtocolErrorHandler(eh ProtocolErrorHandler) ProtocolOption {
+	return withProtocolErrorHandler{eh: eh}
+}
+func WithEndpointErrorHandler(eh EndpointErrorHandler) EndpointOption {
+	return withEndpointErrorHandler{eh: eh}
+}
 
 type withUpdatePeriod struct{ updatePeriod time.Duration }
 
-func (o withUpdatePeriod) applyConn(c *Conn)         { c.updatePeriod = o.updatePeriod }
+func (o withUpdatePeriod) applyProtocol(p *Protocol) { p.updatePeriod = o.updatePeriod }
 func (o withUpdatePeriod) applyEndpoint(e *Endpoint) { e.updatePeriod = o.updatePeriod }
 
 func WithUpdatePeriod(updatePeriod time.Duration) Option {
@@ -82,7 +94,7 @@ func WithUpdatePeriod(updatePeriod time.Duration) Option {
 
 type withResendTimeout struct{ resendTimeout time.Duration }
 
-func (o withResendTimeout) applyConn(c *Conn)         { c.resendTimeout = o.resendTimeout }
+func (o withResendTimeout) applyProtocol(p *Protocol) { p.resendTimeout = o.resendTimeout }
 func (o withResendTimeout) applyEndpoint(e *Endpoint) { e.resendTimeout = o.resendTimeout }
 
 func WithResendTimeout(resendTimeout time.Duration) Option {

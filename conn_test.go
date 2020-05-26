@@ -1,59 +1,78 @@
 package reliable
 
 import (
+	"bytes"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
-	"sync"
+	"math"
+	"net"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
-func testConnWaitForWriteDetails(inc uint16) func(t testing.TB) {
-	return func(t testing.TB) {
-		defer goleak.VerifyNone(t)
+func TestConnWriteReliablePacket(t *testing.T) {
+	defer goleak.VerifyNone(t)
 
-		c := NewConn(nil, nil)
-		c.wi = uint16(len(c.rq))
+	data := bytes.Repeat([]byte("x"), 1400)
 
-		var wg sync.WaitGroup
-		wg.Add(8)
+	actual := uint64(0)
+	expected := uint64(65536)
 
-		ch := make(chan uint16, 8)
+	a, _ := net.ListenPacket("udp", "127.0.0.1:0")
+	b, _ := net.ListenPacket("udp", "127.0.0.1:0")
 
-		for i := 0; i < 8; i++ {
-			go func() {
-				defer wg.Done()
+	handler := func(buf []byte, _ uint16) {
+		atomic.AddUint64(&actual, 1)
+		require.EqualValues(t, data, buf)
+	}
 
-				idx, _, _, _ := c.waitForNextWriteDetails()
-				ch <- idx
-			}()
-		}
+	ca := NewConn(a.LocalAddr(), a, WithProtocolPacketHandler(handler))
+	cb := NewConn(b.LocalAddr(), b, WithProtocolPacketHandler(handler))
 
-		for i := 0; i < 8; i++ {
-			c.ouc.L.Lock()
-			c.oui += inc
-			c.ouc.Broadcast()
-			c.ouc.L.Unlock()
-		}
+	go readLoop(t, a, ca)
+	go readLoop(t, b, cb)
 
-		wg.Wait()
+	defer func() {
+		// Note: Guarantee that all messages are deliverd
+		time.Sleep(100 * time.Millisecond)
 
-		expected := make(map[uint16]struct{}, 8)
+		require.NoError(t, a.SetDeadline(time.Now().Add(1*time.Millisecond)))
+		require.NoError(t, b.SetDeadline(time.Now().Add(1*time.Millisecond)))
 
-		close(ch)
-		for idx := range ch {
-			expected[idx] = struct{}{}
-		}
+		require.NoError(t, a.Close())
+		require.NoError(t, b.Close())
 
-		for i := 0; i < 8; i++ {
-			actual := uint16(len(c.wq) + i)
-			require.Contains(t, expected, actual)
-			delete(expected, actual)
-		}
+		ca.Close()
+		cb.Close()
+
+		require.EqualValues(t, expected, atomic.LoadUint64(&actual))
+	}()
+
+	for i := uint64(0); i < expected; i++ {
+		require.NoError(t, ca.WriteReliablePacket(data))
 	}
 }
 
-func TestConnWaitForWriteDetails(t *testing.T) {
-	testConnWaitForWriteDetails(1)(t)
-	testConnWaitForWriteDetails(2)(t)
-	testConnWaitForWriteDetails(4)(t)
+func readLoop(t *testing.T, pc net.PacketConn, c *Conn) {
+	var (
+		n   int
+		err error
+	)
+
+	buf := make([]byte, math.MaxUint16+1)
+	for {
+		n, _, err = pc.ReadFrom(buf)
+		if err != nil {
+			break
+		}
+
+		header, buf, err := UnmarshalPacketHeader(buf[:n])
+		require.NoError(t, err)
+
+		if err == nil {
+			err = c.Read(header, buf)
+			require.NoError(t, err)
+		}
+	}
 }

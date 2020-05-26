@@ -44,12 +44,15 @@ func main() {
 
 	counter := uint64(0)
 
-	handler := func(addr net.Addr, seq uint16, buf []byte) {
+	handler := func(buf []byte, addr net.Addr) {
+		if len(buf) == 0 {
+			return
+		}
 		//log.Printf("%s->%s: (seq=%d) (size=%d)", addr.String(), conn.LocalAddr().String(), seq, len(buf))
 		atomic.AddUint64(&counter, 1)
 	}
 
-	endpoint := reliable.NewEndpoint(conn, reliable.WithPacketHandler(handler))
+	endpoint := reliable.NewEndpoint(conn, reliable.WithEndpointPacketHandler(handler))
 	go endpoint.Listen()
 
 	defer func() {
