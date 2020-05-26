@@ -5,6 +5,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 	"net"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -95,7 +96,11 @@ func TestEndpointWriteReliablePacket(t *testing.T) {
 	actual := uint64(0)
 	expected := uint64(65536)
 
-	handler := func(_ net.Addr, seq uint16, buf []byte) {
+	handler := func(buf []byte, _ net.Addr) {
+		if len(buf) == 0 {
+			return
+		}
+
 		atomic.AddUint64(&actual, 1)
 
 		mu.Lock()
@@ -109,8 +114,8 @@ func TestEndpointWriteReliablePacket(t *testing.T) {
 	ca := newPacketConn(t, "127.0.0.1:0")
 	cb := newPacketConn(t, "127.0.0.1:0")
 
-	a := NewEndpoint(ca, WithPacketHandler(handler))
-	b := NewEndpoint(cb, WithPacketHandler(handler))
+	a := NewEndpoint(ca, WithEndpointPacketHandler(handler))
+	b := NewEndpoint(cb, WithEndpointPacketHandler(handler))
 
 	go a.Listen()
 	go b.Listen()
@@ -145,15 +150,18 @@ func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
 	actual := uint64(0)
 	expected := uint64(512)
 
-	handler := func(_ net.Addr, seq uint16, buf []byte) {
+	handler := func(buf []byte, _ net.Addr) {
+		if len(buf) == 0 {
+			return
+		}
 		atomic.AddUint64(&actual, 1)
 	}
 
 	ca := newPacketConn(t, "127.0.0.1:0")
 	cb := newPacketConn(t, "127.0.0.1:0")
 
-	a := NewEndpoint(ca, WithPacketHandler(handler))
-	b := NewEndpoint(cb, WithPacketHandler(handler))
+	a := NewEndpoint(ca, WithEndpointPacketHandler(handler))
+	b := NewEndpoint(cb, WithEndpointPacketHandler(handler))
 
 	go a.Listen()
 	go b.Listen()
@@ -184,11 +192,14 @@ func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
 func TestRaceConditions(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	actual := uint64(0)
-	expected := uint64(1000)
+	var expected int = 1000
+	tr := newTestRaceConditions(expected)
 
-	handler := func(_ net.Addr, seq uint16, buf []byte) {
-		atomic.AddUint64(&actual, 1)
+	handler := func(buf []byte, _ net.Addr) {
+		if len(buf) == 0 {
+			return
+		}
+		tr.append(buf)
 	}
 
 	ca := newPacketConn(t, "127.0.0.1:0")
@@ -197,19 +208,17 @@ func TestRaceConditions(t *testing.T) {
 	cd := newPacketConn(t, "127.0.0.1:0")
 	ce := newPacketConn(t, "127.0.0.1:0")
 
-	a := NewEndpoint(ca, WithPacketHandler(handler))
-	b := NewEndpoint(cb, WithPacketHandler(handler))
-	c := NewEndpoint(cc, WithPacketHandler(handler))
-	d := NewEndpoint(cd, WithPacketHandler(handler))
-	e := NewEndpoint(ce, WithPacketHandler(handler))
+	a := NewEndpoint(ca, WithEndpointPacketHandler(handler))
+	b := NewEndpoint(cb, WithEndpointPacketHandler(handler))
+	c := NewEndpoint(cc, WithEndpointPacketHandler(handler))
+	d := NewEndpoint(cd, WithEndpointPacketHandler(handler))
+	e := NewEndpoint(ce, WithEndpointPacketHandler(handler))
 
 	go a.Listen()
 	go b.Listen()
 	go c.Listen()
 	go d.Listen()
 	go e.Listen()
-
-	tr := newTestRaceConditions(4)
 
 	defer func() {
 		tr.wait()
@@ -235,14 +244,15 @@ func TestRaceConditions(t *testing.T) {
 		require.NoError(t, cd.Close())
 		require.NoError(t, ce.Close())
 
-		require.EqualValues(t, expected*4, atomic.LoadUint64(&actual))
+		require.EqualValues(t, tr.expected, uniqSort(tr.actual))
 	}()
 
 	tr.wg.Add(1)
+	sB := tr.expected[0 : len(tr.expected)/4]
 	go func() {
 		defer tr.done()
-		for i := uint64(0); i < expected; i++ {
-			data := strconv.AppendUint(nil, i, 10)
+		for i := 0; i < len(sB); i++ {
+			data := []byte(strconv.Itoa(sB[i]))
 
 			err := a.WriteReliablePacket(data, b.Addr())
 			if err != nil {
@@ -252,10 +262,11 @@ func TestRaceConditions(t *testing.T) {
 	}()
 
 	tr.wg.Add(1)
+	sC := tr.expected[len(tr.expected)/4 : len(tr.expected)*2/4]
 	go func() {
 		defer tr.done()
-		for i := uint64(0); i < expected; i++ {
-			data := strconv.AppendUint(nil, i, 10)
+		for i := 0; i < len(sC); i++ {
+			data := []byte(strconv.Itoa(sC[i]))
 
 			err := a.WriteReliablePacket(data, c.Addr())
 			if err != nil {
@@ -265,10 +276,11 @@ func TestRaceConditions(t *testing.T) {
 	}()
 
 	tr.wg.Add(1)
+	sD := tr.expected[len(tr.expected)*2/4 : len(tr.expected)*3/4]
 	go func() {
 		defer tr.done()
-		for i := uint64(0); i < expected; i++ {
-			data := strconv.AppendUint(nil, i, 10)
+		for i := 0; i < len(sD); i++ {
+			data := []byte(strconv.Itoa(sD[i]))
 
 			err := a.WriteReliablePacket(data, d.Addr())
 			if err != nil {
@@ -278,10 +290,11 @@ func TestRaceConditions(t *testing.T) {
 	}()
 
 	tr.wg.Add(1)
+	sE := tr.expected[len(tr.expected)*3/4:]
 	go func() {
 		defer tr.done()
-		for i := uint64(0); i < expected; i++ {
-			data := strconv.AppendUint(nil, i, 10)
+		for i := 0; i < len(sE); i++ {
+			data := []byte(strconv.Itoa(sE[i]))
 
 			err := a.WriteReliablePacket(data, e.Addr())
 			if err != nil {
@@ -294,12 +307,14 @@ func TestRaceConditions(t *testing.T) {
 // Note: This struct is test for TestRaceConditions
 // The purpose for this struct is to prevent race condition of WaitGroup
 type testRaceConditions struct {
-	mu sync.Mutex
-	wg sync.WaitGroup
+	mu       sync.Mutex
+	wg       sync.WaitGroup
+	expected []int
+	actual   []int
 }
 
 func newTestRaceConditions(cap int) *testRaceConditions {
-	return &testRaceConditions{}
+	return &testRaceConditions{expected: genNumSlice(cap)}
 }
 
 func (t *testRaceConditions) done() {
@@ -310,4 +325,31 @@ func (t *testRaceConditions) done() {
 
 func (t *testRaceConditions) wait() {
 	t.wg.Wait()
+}
+
+func (t *testRaceConditions) append(buf []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	num, _ := strconv.Atoi(string(buf))
+	t.actual = append(t.actual, num)
+}
+
+func genNumSlice(len int) (s []int) {
+	for i := 0; i < len; i++ {
+		s = append(s, i)
+	}
+	return
+}
+
+func uniqSort(s []int) (result []int) {
+	sort.Ints(s)
+	var pre int
+	for i := 0; i < len(s); i++ {
+		if i == 0 || s[i] != pre {
+			result = append(result, s[i])
+		}
+		pre = s[i]
+	}
+	return
 }

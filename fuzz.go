@@ -21,15 +21,15 @@ func Fuzz(data []byte) int {
 
 	chErr := make(chan error)
 
-	handler := func(_ net.Addr, _ uint16, buf []byte) {
-		if bytes.Equal(buf, data) {
+	handler := func(buf []byte, _ net.Addr) {
+		if len(buf) == 0 || bytes.Equal(buf, data) {
 			return
 		}
 		chErr <- errors.New("data miss match")
 	}
 
-	ea := NewEndpoint(ca, reliable.WithPacketHandler(handler))
-	eb := NewEndpoint(cb, reliable.WithPacketHandler(handler))
+	ea := NewEndpoint(ca, reliable.WithEndpointPacketHandler(handler))
+	eb := NewEndpoint(cb, reliable.WithEndpointPacketHandler(handler))
 
 	go ea.Listen()
 	go eb.Listen()

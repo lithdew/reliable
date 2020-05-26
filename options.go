@@ -54,19 +54,45 @@ func WithReadBufferSize(readBufferSize uint16) Option {
 	return withReadBufferSize{readBufferSize: readBufferSize}
 }
 
-type withPacketHandler struct{ ph PacketHandler }
+type withPacketHandler struct{ ph interface{} }
 
-func (o withPacketHandler) applyProtocol(p *Protocol) { p.ph = o.ph }
-func (o withPacketHandler) applyEndpoint(e *Endpoint) { e.ph = o.ph }
+func (o withPacketHandler) applyProtocol(p *Protocol) {
+	ph, ok := o.ph.(ProtocolPacketHandler)
+	if !ok {
+		panic("packet handler type expected to be ProtocolPacketHandler")
+	}
+	p.ph = ph
+}
+func (o withPacketHandler) applyEndpoint(e *Endpoint) {
+	ph, ok := o.ph.(EndpointPacketHandler)
+	if !ok {
+		panic("packet handler type expected to be EndpointPacketHandler")
+	}
+	e.ph = ph
+}
 
-func WithPacketHandler(ph PacketHandler) Option { return withPacketHandler{ph: ph} }
+func WithProtocolPacketHandler(ph ProtocolPacketHandler) Option { return withPacketHandler{ph: ph} }
+func WithEndpointPacketHandler(ph EndpointPacketHandler) Option { return withPacketHandler{ph: ph} }
 
-type withErrorHandler struct{ eh ErrorHandler }
+type withErrorHandler struct{ eh interface{} }
 
-func (o withErrorHandler) applyProtocol(p *Protocol) { p.eh = o.eh }
-func (o withErrorHandler) applyEndpoint(e *Endpoint) { e.eh = o.eh }
+func (o withErrorHandler) applyProtocol(p *Protocol) {
+	eh, ok := o.eh.(ProtocolErrorHandler)
+	if !ok {
+		panic("error handler type expected to be ProtocolErrorHandler")
+	}
+	p.eh = eh
+}
+func (o withErrorHandler) applyEndpoint(e *Endpoint) {
+	eh, ok := o.eh.(EndpointErrorHandler)
+	if !ok {
+		panic("error handler type expected to be EndpointErrorHandler")
+	}
+	e.eh = eh
+}
 
-func WithErrorHandler(eh ErrorHandler) Option { return withErrorHandler{eh: eh} }
+func WithProtocolErrorHandler(eh ProtocolErrorHandler) Option { return withErrorHandler{eh: eh} }
+func WithEndpointErrorHandler(eh EndpointErrorHandler) Option { return withErrorHandler{eh: eh} }
 
 type withUpdatePeriod struct{ updatePeriod time.Duration }
 

@@ -109,8 +109,8 @@ Note that some sort of keep-alive mechanism or heartbeat system needs to be boot
 1. The read buffer size may be configured using `WithReadBufferSize`. The default read buffer size is 256.
 2. The write buffer size may be configured using `WithWriteBufferSize`. The default write buffer size is 256.
 3. The minimum period of time before we retransmit an packet that has yet to be acknowledged may be configured using `WithResendTimeout`. The default resend timeout is 100 milliseconds.
-4. A packet handler which is to be called back when a packet is received may be configured using `WithPacketHandler`. By default, a nil handler is provided which ignores all incoming packets.
-5. An error handler which is called when errors occur on a connection that may be configured using `WithErrorHandler` By default, a nil handler is provided which ignores all errors.
+4. A packet handler which is to be called back when a packet is received may be configured using `WithEndpointPacketHandler` or `WithProtocolPacketHandler`. By default, a nil handler is provided which ignores all incoming packets.
+5. An error handler which is called when errors occur on a connection that may be configured using `WithEndpointErrorHandler` or `WithProtocolErrorHandler`. By default, a nil handler is provided which ignores all errors.
 6. A byte buffer pool may be passed in using `WithBufferPool`. By default, a new byte buffer pool is instantiated.
 
 ## Benchmarks
@@ -183,8 +183,8 @@ func listen(addr string) net.PacketConn {
 	return conn
 }
 
-func handler(_ net.Addr, _ uint16, buf []byte) {
-	if bytes.Equal(buf, PacketData) {
+func handler(buf []byte, _ net.Addr) {
+	if bytes.Equal(buf, PacketData) || len(buf) == 0 {
 		return
 	}
 	spew.Dump(buf)
@@ -200,8 +200,8 @@ func main() {
 	ca := listen("127.0.0.1:44444")
 	cb := listen("127.0.0.1:55555")
 
-	a := reliable.NewEndpoint(ca, reliable.WithPacketHandler(handler))
-	b := reliable.NewEndpoint(cb, reliable.WithPacketHandler(handler))
+	a := reliable.NewEndpoint(ca, reliable.WithEndpointPacketHandler(handler))
+	b := reliable.NewEndpoint(cb, reliable.WithEndpointPacketHandler(handler))
 
 	defer func() {
 		check(ca.SetDeadline(time.Now().Add(1 * time.Millisecond)))

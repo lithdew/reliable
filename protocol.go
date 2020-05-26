@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"github.com/lithdew/seq"
 	"io"
-	"net"
 	"sync"
 	"time"
 )
+
+type ProtocolPacketHandler func(buf []byte, seq uint16)
+type ProtocolErrorHandler func(err error)
 
 type Protocol struct {
 	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
@@ -18,8 +20,8 @@ type Protocol struct {
 
 	pool *Pool
 
-	ph PacketHandler
-	eh ErrorHandler
+	ph ProtocolPacketHandler
+	eh ProtocolErrorHandler
 
 	mu   sync.Mutex    // mutex over everything
 	die  bool          // is this conn closed?
@@ -202,26 +204,26 @@ func (p *Protocol) clearWrites(start, end uint16) {
 	emptyBufferIndices(second)
 }
 
-func (p *Protocol) Read(addr net.Addr, header PacketHeader, buf []byte) ([]byte, error) {
+func (p *Protocol) Read(header PacketHeader, buf []byte) []byte {
 	p.readAckBits(header.ACK, header.ACKBits)
 
 	if !header.Unordered && !p.trackRead(header.Sequence) {
-		return nil, nil
+		return nil
 	}
 
 	p.trackUnacked()
 
 	if header.Empty {
-		return nil, nil
+		return nil
 	}
 
 	if p.ph != nil {
-		p.ph(addr, header.Sequence, buf)
+		p.ph(buf, header.Sequence)
 	}
 
 	// log.Printf("%v: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", &p, header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
 
-	return p.writeAcksIfNecessary(), nil
+	return p.writeAcksIfNecessary()
 }
 
 func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
@@ -378,7 +380,7 @@ func (p *Protocol) Close() {
 	}
 }
 
-func (p *Protocol) Run(addr net.Addr, transmit transmitFunc) {
+func (p *Protocol) Run(transmit transmitFunc) {
 	ticker := time.NewTicker(p.updatePeriod)
 	defer ticker.Stop()
 
@@ -388,7 +390,7 @@ func (p *Protocol) Run(addr net.Addr, transmit transmitFunc) {
 			return
 		case <-ticker.C:
 			if err := p.retransmitUnackedPackets(transmit); err != nil && p.eh != nil {
-				p.eh(addr, err)
+				p.eh(err)
 			}
 		}
 	}
