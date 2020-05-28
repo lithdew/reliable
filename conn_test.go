@@ -27,21 +27,27 @@ func TestConnWriteReliablePacket(t *testing.T) {
 		require.EqualValues(t, data, buf)
 	}
 
-	ca := NewConn(a.LocalAddr(), a, WithProtocolPacketHandler(handler))
-	cb := NewConn(b.LocalAddr(), b, WithProtocolPacketHandler(handler))
+	ca := NewConn(b.LocalAddr(), a, WithProtocolPacketHandler(handler))
+	cb := NewConn(a.LocalAddr(), b, WithProtocolPacketHandler(handler))
 
 	go readLoop(t, a, ca)
 	go readLoop(t, b, cb)
 
+	go ca.Run()
+	go cb.Run()
+
 	defer func() {
+		// Note: Guarantee that all messages are deliverd
+		time.Sleep(1 * time.Second)
+
 		require.NoError(t, a.SetDeadline(time.Now().Add(1*time.Millisecond)))
 		require.NoError(t, b.SetDeadline(time.Now().Add(1*time.Millisecond)))
 
-		require.NoError(t, a.Close())
-		require.NoError(t, b.Close())
-
 		ca.Close()
 		cb.Close()
+
+		require.NoError(t, a.Close())
+		require.NoError(t, b.Close())
 
 		require.EqualValues(t, expected, atomic.LoadUint64(&actual))
 	}()

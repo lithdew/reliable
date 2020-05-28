@@ -40,14 +40,7 @@ func (c *Conn) WriteUnreliablePacket(buf []byte) error {
 }
 
 func (c *Conn) Read(header PacketHeader, buf []byte) error {
-	buf = c.protocol.ReadPacket(header, buf)
-
-	if len(buf) != 0 {
-		_, err := c.transmit(buf)
-		return err
-	}
-
-	return nil
+	return c.protocol.ReadPacket(header, buf, c.transmit)
 }
 
 func (c *Conn) Close() {

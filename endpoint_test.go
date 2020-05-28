@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -89,26 +88,18 @@ func BenchmarkEndpointWriteUnreliablePacket(b *testing.B) {
 func TestEndpointWriteReliablePacket(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	var mu sync.Mutex
-
-	values := make(map[string]struct{})
-
-	actual := uint64(0)
-	expected := uint64(65536)
+	var (
+		expected []int
+		actual   []int
+		loop     uint64 = 65536
+	)
 
 	handler := func(buf []byte, _ net.Addr) {
 		if len(buf) == 0 {
 			return
 		}
-
-		atomic.AddUint64(&actual, 1)
-
-		mu.Lock()
-		_, exists := values[string(buf)]
-		delete(values, string(buf))
-		mu.Unlock()
-
-		require.True(t, exists)
+		num, _ := strconv.Atoi(string(buf))
+		actual = append(actual, num)
 	}
 
 	ca := newPacketConn(t, "127.0.0.1:0")
@@ -121,6 +112,9 @@ func TestEndpointWriteReliablePacket(t *testing.T) {
 	go b.Listen()
 
 	defer func() {
+		// Note: Guarantee that all messages are deliverd
+		time.Sleep(1 * time.Second)
+
 		require.NoError(t, ca.SetDeadline(time.Now().Add(1*time.Millisecond)))
 		require.NoError(t, cb.SetDeadline(time.Now().Add(1*time.Millisecond)))
 
@@ -130,15 +124,12 @@ func TestEndpointWriteReliablePacket(t *testing.T) {
 		require.NoError(t, ca.Close())
 		require.NoError(t, cb.Close())
 
-		require.EqualValues(t, expected, atomic.LoadUint64(&actual))
+		require.EqualValues(t, expected, uniqSort(actual))
 	}()
 
-	for i := uint64(0); i < expected; i++ {
+	for i := uint64(0); i < loop; i++ {
 		data := strconv.AppendUint(nil, i, 10)
-
-		mu.Lock()
-		values[string(data)] = struct{}{}
-		mu.Unlock()
+		expected = append(expected, int(i))
 
 		require.NoError(t, a.WriteReliablePacket(data, b.Addr()))
 	}
@@ -147,14 +138,21 @@ func TestEndpointWriteReliablePacket(t *testing.T) {
 func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	actual := uint64(0)
-	expected := uint64(512)
+	var (
+		expected []int
+		actual   []int
+		loop     uint64 = 512
+		mu       sync.Mutex
+	)
 
 	handler := func(buf []byte, _ net.Addr) {
 		if len(buf) == 0 {
 			return
 		}
-		atomic.AddUint64(&actual, 1)
+		mu.Lock()
+		num, _ := strconv.Atoi(string(buf))
+		actual = append(actual, num)
+		mu.Unlock()
 	}
 
 	ca := newPacketConn(t, "127.0.0.1:0")
@@ -176,14 +174,17 @@ func TestEndpointWriteReliablePacketEndToEnd(t *testing.T) {
 		require.NoError(t, ca.Close())
 		require.NoError(t, cb.Close())
 
-		require.EqualValues(t, expected*2, atomic.LoadUint64(&actual))
+		sort.Ints(expected)
+		require.EqualValues(t, expected, uniqSort(actual))
 	}()
 
-	for i := uint64(0); i < expected; i++ {
-		data := strconv.AppendUint(nil, i, 10)
+	for i := uint64(0); i < loop; i++ {
+		dataA := strconv.AppendUint(nil, i, 10)
+		dataB := strconv.AppendUint(nil, i+loop, 10)
+		expected = append(expected, int(i), int(i+loop))
 
-		require.NoError(t, a.WriteReliablePacket(data, b.Addr()))
-		require.NoError(t, b.WriteReliablePacket(data, a.Addr()))
+		require.NoError(t, a.WriteReliablePacket(dataA, b.Addr()))
+		require.NoError(t, b.WriteReliablePacket(dataB, a.Addr()))
 	}
 }
 

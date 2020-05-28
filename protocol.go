@@ -104,7 +104,7 @@ func (p *Protocol) WritePacket(reliable bool, buf []byte) ([]byte, error) {
 
 	p.trackAcked(ack)
 
-	// log.Printf("%v: send    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", &p, idx, ack, ackBits, len(buf), reliable)
+	// log.Printf("%p: send    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", p, idx, ack, ackBits, len(buf), reliable)
 
 	return p.write(PacketHeader{Sequence: idx, ACK: ack, ACKBits: ackBits, Unordered: !reliable}, buf), nil
 }
@@ -201,7 +201,7 @@ func (p *Protocol) clearWrites(start, end uint16) {
 	emptyBufferIndices(second)
 }
 
-func (p *Protocol) ReadPacket(header PacketHeader, buf []byte) []byte {
+func (p *Protocol) ReadPacket(header PacketHeader, buf []byte, transmit transmitFunc) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -221,9 +221,9 @@ func (p *Protocol) ReadPacket(header PacketHeader, buf []byte) []byte {
 		p.ph(buf, header.Sequence)
 	}
 
-	// log.Printf("%v: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", &p, header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
+	// log.Printf("%p: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", p, header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
 
-	return p.writeAcksIfNecessary()
+	return p.writeAcksIfNecessary(transmit)
 }
 
 func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
@@ -250,16 +250,19 @@ func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
 	return header, needed
 }
 
-func (p *Protocol) writeAcksIfNecessary() []byte {
+func (p *Protocol) writeAcksIfNecessary(transmit transmitFunc) error {
 	for {
 		header, needed := p.createAckIfNecessary()
 		if !needed {
 			return nil
 		}
 
-		// log.Printf("%v: ack     (seq=%05d) (ack=%05d) (ack_bits=%032b)", &p, header.Sequence, header.ACK, header.ACKBits)
+		// log.Printf("%p: ack     (seq=%05d) (ack=%05d) (ack_bits=%032b)", p, header.Sequence, header.ACK, header.ACKBits)
 
-		return p.write(header, nil)
+		buf := p.write(header, nil)
+		if _, err := transmit(buf); err != nil {
+			return fmt.Errorf("failed to transmit acks: %w", err)
+		}
 	}
 }
 
@@ -397,7 +400,7 @@ func (p *Protocol) retransmitUnackedPackets(transmit transmitFunc) error {
 			continue
 		}
 
-		// log.Printf("%v: resend  (seq=%d)", &p, p.oui+idx)
+		// log.Printf("%p: resend  (seq=%d)", p, p.oui+idx)
 
 		if isEOF, err := transmit(p.wqe[i].buf.B); err != nil {
 			return fmt.Errorf("failed to retransmit unacked packet: %w", err)

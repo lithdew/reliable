@@ -1,22 +1,24 @@
-// +build gofuzz
-
-package reliable
+package main
 
 import (
 	"bytes"
 	"errors"
 	"net"
 	"time"
+	"io"
+	"github.com/lithdew/reliable"
 )
 
-func Fuzz(data []byte) int {
+func main() {
+	var data []byte = []byte{}
+
 	ca, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
-		return -1
+		panic("hoge")
 	}
 	cb, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
-		return -1
+		panic("hoge")
 	}
 
 	chErr := make(chan error)
@@ -25,11 +27,12 @@ func Fuzz(data []byte) int {
 		if len(buf) == 0 || bytes.Equal(buf, data) {
 			return
 		}
+		panic("hoge")
 		chErr <- errors.New("data miss match")
 	}
 
-	ea := NewEndpoint(ca, WithEndpointPacketHandler(handler))
-	eb := NewEndpoint(cb, WithEndpointPacketHandler(handler))
+	ea := reliable.NewEndpoint(ca, reliable.WithEndpointPacketHandler(handler))
+	eb := reliable.NewEndpoint(cb, reliable.WithEndpointPacketHandler(handler))
 
 	go ea.Listen()
 	go eb.Listen()
@@ -37,35 +40,51 @@ func Fuzz(data []byte) int {
 	for i := 0; i < 65536; i++ {
 		select {
 		case <-chErr:
-			return 0
+			panic("hoge")
 		default:
 			if err := ea.WriteReliablePacket(data, eb.Addr()); err != nil && !isEOF(err) {
-				return 0
+				panic("hoge")
 			}
 		}
 	}
 
 	if err := ca.SetDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {
-		return 0
+		panic("hoge")
 	}
 
 	if err := cb.SetDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {
-		return 0
+		panic("hoge")
 	}
 
 	if err := ea.Close(); err != nil {
-		return 0
+		panic("hoge")
 	}
 	if err := eb.Close(); err != nil {
-		return 0
+		panic("hoge")
 	}
 
 	if err := ca.Close(); err != nil {
-		return 0
+		panic("hoge")
 	}
 	if err := cb.Close(); err != nil {
-		return 0
+		panic("hoge")
+	}
+}
+
+func isEOF(err error) bool {
+	if errors.Is(err, io.EOF) {
+		return true
 	}
 
-	return 1
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		if netErr.Err.Error() == "use of closed network connection" {
+			return true
+		}
+		if netErr.Timeout() {
+			return true
+		}
+	}
+
+	return false
 }
