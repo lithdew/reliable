@@ -40,7 +40,15 @@ func (c *Conn) WriteUnreliablePacket(buf []byte) error {
 }
 
 func (c *Conn) Read(header PacketHeader, buf []byte) error {
-	return c.protocol.ReadPacket(header, buf, c.transmit)
+	bufs := c.protocol.ReadPacket(header, buf)
+
+	for _, b := range bufs {
+		if _, err := c.transmit(b); err != nil {
+			return fmt.Errorf("failed to transmit acks: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (c *Conn) Close() {
