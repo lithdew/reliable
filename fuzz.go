@@ -34,7 +34,7 @@ func Fuzz(data []byte) int {
 	go ea.Listen()
 	go eb.Listen()
 
-	for i := 0; i < 65536; i++ {
+	for i := 0; i < 4096; i++ {
 		select {
 		case <-chErr:
 			return 0
