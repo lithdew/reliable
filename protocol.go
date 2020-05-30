@@ -201,20 +201,20 @@ func (p *Protocol) clearWrites(start, end uint16) {
 	emptyBufferIndices(second)
 }
 
-func (p *Protocol) ReadPacket(header PacketHeader, buf []byte) [][]byte {
+func (p *Protocol) ReadPacket(header PacketHeader, buf []byte) (needed bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.readAckBits(header.ACK, header.ACKBits)
 
 	if !header.Unordered && !p.trackRead(header.Sequence) {
-		return nil
+		return
 	}
 
 	p.trackUnacked()
 
 	if header.Empty {
-		return nil
+		return
 	}
 
 	if p.ph != nil {
@@ -223,19 +223,24 @@ func (p *Protocol) ReadPacket(header PacketHeader, buf []byte) [][]byte {
 
 	// log.Printf("%p: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", p, header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
 
-	return p.writeAcksIfNecessary()
+	needed = p.ackNeeded()
+	return
 }
 
-func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
+func (p *Protocol) ackNeeded() bool {
 	lui := p.lui
 
 	for i := uint16(0); i < ACKBitsetSize; i++ {
 		if p.rq[(lui+i)%uint16(len(p.rq))] != uint32(lui+i) {
-			return header, needed
+			return false
 		}
 	}
 
-	lui += ACKBitsetSize
+	return !p.die
+}
+
+func (p *Protocol) createAck() (header PacketHeader) {
+	lui := p.lui + ACKBitsetSize
 	p.lui = lui
 	p.ls = time.Now()
 
@@ -245,25 +250,7 @@ func (p *Protocol) createAckIfNecessary() (header PacketHeader, needed bool) {
 	header.ACKBits = p.prepareAckBits(header.ACK)
 	header.Empty = true
 
-	needed = !p.die
-
-	return header, needed
-}
-
-func (p *Protocol) writeAcksIfNecessary() (bufs [][]byte) {
-	for {
-		header, needed := p.createAckIfNecessary()
-		if !needed {
-			break
-		}
-
-		// log.Printf("%p: ack     (seq=%05d) (ack=%05d) (ack_bits=%032b)", p, header.Sequence, header.ACK, header.ACKBits)
-
-		buf := p.write(header, nil)
-		bufs = append(bufs, buf)
-	}
-
-	return
+	return header
 }
 
 func (p *Protocol) readAckBits(ack uint16, ackBits uint32) {

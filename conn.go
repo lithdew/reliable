@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	// "sync"
 )
 
 type transmitFunc func(buf []byte) (bool, error)
@@ -40,15 +41,12 @@ func (c *Conn) WriteUnreliablePacket(buf []byte) error {
 }
 
 func (c *Conn) Read(header PacketHeader, buf []byte) error {
-	bufs := c.protocol.ReadPacket(header, buf)
-
-	for _, b := range bufs {
-		if _, err := c.transmit(b); err != nil {
-			return fmt.Errorf("failed to transmit acks: %w", err)
-		}
+	needed := c.protocol.ReadPacket(header, buf)
+	if !needed {
+		return nil
 	}
 
-	return nil
+	return c.writeAcks()
 }
 
 func (c *Conn) Close() {
@@ -74,4 +72,25 @@ func (c *Conn) transmit(buf []byte) (EOF bool, err error) {
 	}
 
 	return
+}
+
+func (c *Conn) writeAcks() error {
+	c.protocol.mu.Lock()
+	defer c.protocol.mu.Unlock()
+
+	for {
+		needed := c.protocol.ackNeeded()
+		if !needed {
+			break
+		}
+
+		header := c.protocol.createAck()
+
+		buf := c.protocol.write(header, nil)
+		if _, err := c.transmit(buf); err != nil {
+			return fmt.Errorf("failed to transmit acks: %w", err)
+		}
+	}
+
+	return nil
 }
