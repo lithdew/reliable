@@ -18,6 +18,10 @@ type EndpointOption interface {
 	applyEndpoint(e *Endpoint)
 }
 
+type ConnOption interface {
+	applyConn(c *Conn)
+}
+
 type Option interface {
 	ProtocolOption
 	EndpointOption
@@ -82,10 +86,9 @@ func WithEndpointErrorHandler(eh EndpointErrorHandler) EndpointOption {
 
 type withUpdatePeriod struct{ updatePeriod time.Duration }
 
-func (o withUpdatePeriod) applyProtocol(p *Protocol) { p.updatePeriod = o.updatePeriod }
-func (o withUpdatePeriod) applyEndpoint(e *Endpoint) { e.updatePeriod = o.updatePeriod }
+func (o withUpdatePeriod) applyConn(c *Conn) { c.updatePeriod = o.updatePeriod }
 
-func WithUpdatePeriod(updatePeriod time.Duration) Option {
+func WithUpdatePeriod(updatePeriod time.Duration) ConnOption {
 	if updatePeriod == 0 {
 		panic("update period of zero is not supported yet")
 	}
@@ -94,10 +97,9 @@ func WithUpdatePeriod(updatePeriod time.Duration) Option {
 
 type withResendTimeout struct{ resendTimeout time.Duration }
 
-func (o withResendTimeout) applyProtocol(p *Protocol) { p.resendTimeout = o.resendTimeout }
-func (o withResendTimeout) applyEndpoint(e *Endpoint) { e.resendTimeout = o.resendTimeout }
+func (o withResendTimeout) applyConn(c *Conn) { c.resendTimeout = o.resendTimeout }
 
-func WithResendTimeout(resendTimeout time.Duration) Option {
+func WithResendTimeout(resendTimeout time.Duration) ConnOption {
 	if resendTimeout == 0 {
 		panic("ack timeout of zero is not supported yet")
 	}

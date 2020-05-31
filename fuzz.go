@@ -28,13 +28,13 @@ func Fuzz(data []byte) int {
 		chErr <- errors.New("data miss match")
 	}
 
-	ea := NewEndpoint(ca, reliable.WithEndpointPacketHandler(handler))
-	eb := NewEndpoint(cb, reliable.WithEndpointPacketHandler(handler))
+	ea := NewEndpoint(ca, WithEndpointPacketHandler(handler))
+	eb := NewEndpoint(cb, WithEndpointPacketHandler(handler))
 
 	go ea.Listen()
 	go eb.Listen()
 
-	for i := 0; i < 65536; i++ {
+	for i := 0; i < 4096; i++ {
 		select {
 		case <-chErr:
 			return 0
