@@ -1,7 +1,6 @@
 package reliable
 
 import (
-	"fmt"
 	"github.com/lithdew/seq"
 	"io"
 	"sync"
@@ -14,9 +13,6 @@ type ProtocolErrorHandler func(err error)
 type Protocol struct {
 	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
 	readBufferSize  uint16 // read buffer size that must be a divisor of 65536
-
-	updatePeriod  time.Duration // how often time-dependant parts of the protocol get checked
-	resendTimeout time.Duration // how long we wait until unacked packets should be resent
 
 	pool *Pool
 
@@ -54,14 +50,6 @@ func NewProtocol(opts ...ProtocolOption) *Protocol {
 
 	if p.readBufferSize == 0 {
 		p.readBufferSize = DefaultReadBufferSize
-	}
-
-	if p.resendTimeout == 0 {
-		p.resendTimeout = DefaultResendTimeout
-	}
-
-	if p.updatePeriod == 0 {
-		p.updatePeriod = DefaultUpdatePeriod
 	}
 
 	if p.pool == nil {
@@ -223,11 +211,11 @@ func (p *Protocol) ReadPacket(header PacketHeader, buf []byte) (needed bool) {
 
 	// log.Printf("%p: recv    (seq=%05d) (ack=%05d) (ack_bits=%032b) (size=%d) (reliable=%t)", p, header.Sequence, header.ACK, header.ACKBits, len(buf), !header.Unordered)
 
-	needed = p.ackNeeded()
+	needed = p.checkIfAck()
 	return
 }
 
-func (p *Protocol) ackNeeded() bool {
+func (p *Protocol) checkIfAck() bool {
 	lui := p.lui
 
 	for i := uint16(0); i < ACKBitsetSize; i++ {
@@ -345,7 +333,6 @@ func (p *Protocol) close() bool {
 	if p.die {
 		return false
 	}
-	close(p.exit)
 	p.die = true
 	p.ouc.Broadcast()
 
@@ -361,43 +348,26 @@ func (p *Protocol) Close() {
 	}
 }
 
-func (p *Protocol) Run(transmit transmitFunc) {
-	ticker := time.NewTicker(p.updatePeriod)
-	defer ticker.Stop()
+func (p *Protocol) checkIfRetransmit(idx uint16, resendTimeout time.Duration) ([]byte, bool) {
+	i := (p.oui + idx) % uint16(len(p.wq))
+	if p.wq[i] != uint32(p.oui+idx) || !p.wqe[i].shouldResend(time.Now(), resendTimeout) {
+		return nil, false
+	}
+	return p.wqe[i].buf.B, true
+}
 
-	for {
-		select {
-		case <-p.exit:
-			return
-		case <-ticker.C:
-			if err := p.retransmitUnackedPackets(transmit); err != nil && p.eh != nil {
-				p.eh(err)
-			}
-		}
+func (p *Protocol) incrementWqe(idx uint16) {
+	i := (p.oui + idx) % uint16(len(p.wq))
+	p.wqe[i].written = time.Now()
+	p.wqe[i].resent++
+}
+
+func (p *Protocol) callErrorHandler(err error) {
+	if p.eh != nil {
+		p.eh(err)
 	}
 }
 
-func (p *Protocol) retransmitUnackedPackets(transmit transmitFunc) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	for idx := uint16(0); idx < uint16(len(p.wq)); idx++ {
-		i := (p.oui + idx) % uint16(len(p.wq))
-		if p.wq[i] != uint32(p.oui+idx) || !p.wqe[i].shouldResend(time.Now(), p.resendTimeout) {
-			continue
-		}
-
-		// log.Printf("%p: resend  (seq=%d)", p, p.oui+idx)
-
-		if isEOF, err := transmit(p.wqe[i].buf.B); err != nil {
-			return fmt.Errorf("failed to retransmit unacked packet: %w", err)
-		} else if isEOF {
-			break
-		}
-
-		p.wqe[i].written = time.Now()
-		p.wqe[i].resent++
-	}
-
-	return nil
+func (p *Protocol) writeQueueLen() uint16 {
+	return uint16(len(p.wq))
 }

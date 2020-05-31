@@ -6,7 +6,6 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 type EndpointPacketHandler func(buf []byte, addr net.Addr)
@@ -15,9 +14,6 @@ type EndpointErrorHandler func(err error, addr net.Addr)
 type Endpoint struct {
 	writeBufferSize uint16 // write buffer size that must be a divisor of 65536
 	readBufferSize  uint16 // read buffer size that must be a divisor of 65536
-
-	updatePeriod  time.Duration // how often time-dependant parts of the protocol get checked
-	resendTimeout time.Duration // how long we wait until unacked packets should be resent
 
 	mu sync.Mutex
 	wg sync.WaitGroup
@@ -49,14 +45,6 @@ func NewEndpoint(conn net.PacketConn, opts ...EndpointOption) *Endpoint {
 		e.readBufferSize = DefaultReadBufferSize
 	}
 
-	if e.resendTimeout == 0 {
-		e.resendTimeout = DefaultResendTimeout
-	}
-
-	if e.updatePeriod == 0 {
-		e.updatePeriod = DefaultUpdatePeriod
-	}
-
 	if e.pool == nil {
 		e.pool = new(Pool)
 	}
@@ -81,8 +69,6 @@ func (e *Endpoint) getConn(addr net.Addr) *Conn {
 			e.conn,
 			WithWriteBufferSize(e.writeBufferSize),
 			WithReadBufferSize(e.readBufferSize),
-			WithUpdatePeriod(e.updatePeriod),
-			WithResendTimeout(e.resendTimeout),
 			WithBufferPool(e.pool),
 		)
 
@@ -127,23 +113,33 @@ func (e *Endpoint) Addr() net.Addr {
 	return e.addr
 }
 
-func (e *Endpoint) WriteReliablePacket(buf []byte, addr net.Addr) error {
+func (e *Endpoint) WriteReliablePacket(buf []byte, addr net.Addr, opts ...ConnOption) error {
 	conn := e.getConn(addr)
 	if conn == nil {
 		return io.EOF
 	}
+
+	for _, opt := range opts {
+		opt.applyConn(conn)
+	}
+
 	return conn.WriteReliablePacket(buf)
 }
 
-func (e *Endpoint) WriteUnreliablePacket(buf []byte, addr net.Addr) error {
+func (e *Endpoint) WriteUnreliablePacket(buf []byte, addr net.Addr, opts ...ConnOption) error {
 	conn := e.getConn(addr)
 	if conn == nil {
 		return io.EOF
 	}
+
+	for _, opt := range opts {
+		opt.applyConn(conn)
+	}
+
 	return conn.WriteUnreliablePacket(buf)
 }
 
-func (e *Endpoint) Listen() {
+func (e *Endpoint) Listen(opts ...ConnOption) {
 	e.mu.Lock()
 	e.wg.Add(1)
 	e.mu.Unlock()
@@ -166,6 +162,10 @@ func (e *Endpoint) Listen() {
 		conn := e.getConn(addr)
 		if conn == nil {
 			break
+		}
+
+		for _, opt := range opts {
+			opt.applyConn(conn)
 		}
 
 		header, buf, err := UnmarshalPacketHeader(buf[:n])
